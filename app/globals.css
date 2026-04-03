@@ -1154,3 +1154,314 @@ body {
     display: none;
   }
 }
+
+
+
+/* ================================================================
+   Stock Page & Modal
+   Append this to the bottom of app/globals.css
+================================================================ */
+
+/* ── Stock status badges ─────────────────────────────────────── */
+
+.pf-badge-ok {
+  background: var(--green-light);
+  color: var(--green);
+}
+
+.pf-badge-low {
+  background: var(--amber-light);
+  color: var(--amber);
+}
+
+.pf-badge-out {
+  background: var(--red-light);
+  color: var(--red);
+}
+
+/* ── Expandable rows ─────────────────────────────────────────── */
+
+.pf-expand-icon {
+  font-size: 0.625rem;
+  color: var(--text-faint);
+}
+
+.pf-expand-row {
+  background: var(--row-stripe);
+}
+
+.pf-expand-row:hover {
+  background: var(--row-stripe);
+}
+
+.pf-location-breakdown {
+  padding: 0.75rem 1rem 0.75rem 2rem;
+}
+
+.pf-location-name {
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* ── Inner table (location breakdown) ───────────────────────── */
+
+.pf-inner-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.pf-inner-table th {
+  background: var(--bg);
+  padding: 0.4rem 0.75rem;
+  text-align: left;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.pf-inner-table td {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8125rem;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Modal ───────────────────────────────────────────────────── */
+
+.pf-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.pf-modal {
+  background: var(--surface);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+}
+
+.pf-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.pf-modal-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pf-modal-close {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.pf-modal-close:hover {
+  color: var(--text);
+}
+
+.pf-modal-body {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.pf-modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+/* ── Modal info block ────────────────────────────────────────── */
+
+.pf-modal-info {
+  background: var(--row-stripe);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+}
+
+.pf-modal-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8125rem;
+  padding: 0.2rem 0;
+}
+
+.pf-modal-info-row span:first-child {
+  color: var(--text-muted);
+}
+
+.pf-modal-info-row span:last-child {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.pf-modal-current-qty {
+  font-size: 1rem;
+  color: var(--text);
+}
+
+/* ── Adjustment diff indicator ───────────────────────────────── */
+
+.pf-adjust-diff {
+  font-size: 0.8125rem;
+  font-family: var(--font-mono);
+  margin-top: 0.25rem;
+  display: block;
+}
+
+.pf-diff-pos { color: #2d7a4f; }
+.pf-diff-neg { color: var(--red); }
+
+.pf-input-lg {
+  font-size: 1.25rem;
+  padding: 0.625rem 0.75rem;
+  font-family: var(--font-mono);
+}
+
+
+/* ================================================================
+   Product Stock & Supplier Panels
+   Append this to the bottom of app/globals.css
+================================================================ */
+
+/* ── Panel header with action button ────────────────────────── */
+
+.pf-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0;
+}
+
+/* ── Stock panel ─────────────────────────────────────────────── */
+
+.pf-stock-loading,
+.pf-stock-empty {
+  font-size: 0.8125rem;
+  color: var(--text-faint);
+  padding: 0.5rem 0;
+}
+
+.pf-stock-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.625rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+
+.pf-stock-total span:first-child {
+  color: var(--text-muted);
+}
+
+.pf-stock-total span:last-child {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ── Supplier panel ──────────────────────────────────────────── */
+
+.pf-supplier-add-form {
+  background: var(--row-stripe);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 0.875rem;
+}
+
+.pf-supplier-form-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+.pf-supplier-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.pf-supplier-row {
+  background: var(--row-stripe);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+}
+
+.pf-supplier-preferred {
+  border-color: #13C9A8;
+  background: #f0fdf9;
+}
+
+.pf-supplier-row-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.pf-supplier-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.pf-badge-preferred {
+  background: #f0fdf9;
+  color: #13C9A8;
+  border: 1px solid #13C9A8;
+}
+
+.pf-supplier-row-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.pf-supplier-row-detail code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+.pf-supplier-row-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}

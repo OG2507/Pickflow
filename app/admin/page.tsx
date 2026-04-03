@@ -9,6 +9,11 @@ const ADMIN_SECTIONS = [
     href: '/admin/price-bands',
   },
   {
+    title: 'Locations',
+    description: 'Manage warehouse locations — picking bins, overflow bays, despatch areas.',
+    href: '/admin/locations',
+  },
+  {
     title: 'Categories',
     description: 'Manage product categories and sub-categories.',
     href: '/admin/categories',

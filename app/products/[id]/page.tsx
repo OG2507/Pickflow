@@ -5,6 +5,8 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCategories } from '@/lib/useCategories'
 import { usePriceBands } from '@/lib/usePriceBands'
+import ProductStockPanel from '@/components/ProductStockPanel'
+import ProductSuppliersPanel from '@/components/ProductSuppliersPanel'
 import type { Product, PricingCode } from '@/lib/types'
 
 const VAT_OPTIONS = ['Standard', 'Zero', 'Exempt']
@@ -30,7 +32,6 @@ export default function ProductDetailPage() {
 
   const subcategories = getSubcategories(form.category || '')
 
-  // Find the selected price band object
   const selectedBand: PricingCode | undefined = priceBands.find(
     (b) => b.pricingcodeid === form.pricingcodeid
   )
@@ -203,7 +204,6 @@ export default function ProductDetailPage() {
           <div className="pf-card">
             <h2 className="pf-card-title">Pricing & VAT</h2>
 
-            {/* Price Band selector */}
             <div className="pf-field">
               <label className="pf-label">Price Band</label>
               <select
@@ -221,7 +221,6 @@ export default function ProductDetailPage() {
               </select>
             </div>
 
-            {/* Show inherited prices from band */}
             {selectedBand && (
               <div className="pf-price-band-preview">
                 <span className="pf-price-band-label">Prices from band:</span>
@@ -240,7 +239,6 @@ export default function ProductDetailPage() {
               </div>
             )}
 
-            {/* Manual price overrides */}
             <p className="pf-card-note" style={{ marginTop: selectedBand ? '1rem' : '0' }}>
               {selectedBand
                 ? 'Override individual prices below — leave at 0 to use band price.'
@@ -361,6 +359,12 @@ export default function ProductDetailPage() {
               </label>
             </div>
           </div>
+
+          {/* Stock levels panel */}
+          {product && <ProductStockPanel productid={product.productid} />}
+
+          {/* Supplier links panel */}
+          {product && <ProductSuppliersPanel productid={product.productid} />}
 
           <div className="pf-card pf-card-meta">
             <h2 className="pf-card-title">Record Info</h2>
