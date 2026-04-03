@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 
 type StockByProduct = {
@@ -342,9 +342,8 @@ export default function StockPage() {
               </thead>
               <tbody>
                 {byProduct.map((p) => (
-                  <>
+                  <React.Fragment key={p.productid}>
                     <tr
-                      key={p.productid}
                       className="pf-row"
                       onClick={() => toggleExpand(p.productid)}
                     >
@@ -419,7 +418,7 @@ export default function StockPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -448,9 +447,8 @@ export default function StockPage() {
               </thead>
               <tbody>
                 {byLocation.map((loc) => (
-                  <>
+                  <React.Fragment key={loc.locationid}>
                     <tr
-                      key={loc.locationid}
                       className="pf-row"
                       onClick={() => toggleExpand(loc.locationid)}
                     >
@@ -518,7 +516,7 @@ export default function StockPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
