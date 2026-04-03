@@ -1,26 +1,319 @@
-@import "tailwindcss";
+/* ================================================================
+   PickFlow — Global Styles
+   Replace the contents of app/globals.css with this file.
+   
+   Design: Clean, functional, built for warehouse use.
+   High contrast, generous spacing, scannable tables.
+   No gradients, no shadows, no noise — just clarity.
+================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Colours */
+  color-scheme: light;
+  --bg:           #f5f4f0;
+  --surface:      #ffffff;
+  --border:       #e2e0d8;
+  --border-dark:  #c8c5ba;
+
+  --text:         #1a1916;
+  --text-muted:   #6b6860;
+  --text-faint:   #9e9b93;
+
+  --accent:       #1a3a2a;
+  --accent-hover: #244d39;
+  --accent-text:  #ffffff;
+
+  --green:        #1a3a2a;
+  --green-light:  #e8f0eb;
+  --amber:        #7a4f00;
+  --amber-light:  #fdf3dc;
+  --red:          #6b1a1a;
+  --red-light:    #fdeaea;
+
+  --row-hover:    #f0efe9;
+  --row-stripe:   #faf9f6;
+
+  /* Typography */
+  --font-sans:    'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono:    'IBM Plex Mono', 'Courier New', monospace;
+
+  /* Spacing */
+  --page-pad:     2rem;
+  --gap:          1rem;
+  --radius:       4px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ── Page Layout ─────────────────────────────────────────────── */
+
+.pf-page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--page-pad);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.pf-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1.75rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 2px solid var(--accent);
+}
+
+.pf-page-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.pf-page-subtitle {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Filters ─────────────────────────────────────────────────── */
+
+.pf-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.pf-input {
+  background: var(--surface);
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.pf-input:focus {
+  border-color: var(--accent);
+}
+
+.pf-search {
+  width: 280px;
+}
+
+.pf-select {
+  cursor: pointer;
+}
+
+.pf-toggle-group {
+  display: flex;
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.pf-toggle {
+  background: var(--surface);
+  border: none;
+  border-right: 1px solid var(--border-dark);
+  padding: 0.5rem 0.875rem;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.pf-toggle:last-child {
+  border-right: none;
+}
+
+.pf-toggle:hover {
+  background: var(--row-hover);
+  color: var(--text);
+}
+
+.pf-toggle-on {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.pf-toggle-on:hover {
+  background: var(--accent-hover);
+  color: var(--accent-text);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+
+.pf-btn-primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  border: none;
+  border-radius: var(--radius);
+  padding: 0.5rem 1rem;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.pf-btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+/* ── Table ───────────────────────────────────────────────────── */
+
+.pf-table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.pf-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.pf-table thead tr {
+  background: var(--accent);
+}
+
+.pf-table th {
+  padding: 0.625rem 1rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.75);
+  white-space: nowrap;
+}
+
+.pf-table th.pf-col-right { text-align: right; }
+.pf-table th.pf-col-center { text-align: center; }
+
+.pf-table tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+  cursor: pointer;
+}
+
+.pf-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.pf-table tbody tr:nth-child(even) {
+  background: var(--row-stripe);
+}
+
+.pf-table tbody tr:hover {
+  background: var(--row-hover);
+}
+
+.pf-table td {
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.pf-col-right { text-align: right; }
+.pf-col-center { text-align: center; }
+
+/* ── Table Cell Types ────────────────────────────────────────── */
+
+.pf-sku {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.pf-productname {
+  font-weight: 400;
+}
+
+.pf-category {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.pf-price {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.pf-muted {
+  color: var(--text-muted);
+}
+
+/* ── Badges ──────────────────────────────────────────────────── */
+
+.pf-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 2px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.pf-badge-vat {
+  background: var(--amber-light);
+  color: var(--amber);
+}
+
+.pf-badge-zero {
+  background: var(--green-light);
+  color: var(--green);
+}
+
+/* ── Active Dot ──────────────────────────────────────────────── */
+
+.pf-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.pf-dot-on  { background: #2d7a4f; }
+.pf-dot-off { background: var(--border-dark); }
+
+/* ── States ──────────────────────────────────────────────────── */
+
+.pf-loading,
+.pf-empty {
+  padding: 3rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
 }
