@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { useCategories } from '@/lib/useCategories'
 import type { Product } from '@/lib/types'
 
 const VAT_OPTIONS = ['Standard', 'Zero', 'Exempt']
@@ -13,7 +12,6 @@ export default function ProductDetailPage() {
   const router = useRouter()
   const id = params.id as string
 
-  const { categories, getSubcategories } = useCategories()
   const [product, setProduct] = useState<Product | null>(null)
   const [form, setForm] = useState<Partial<Product>>({})
   const [loading, setLoading] = useState(true)
@@ -21,8 +19,6 @@ export default function ProductDetailPage() {
   const [dirty, setDirty] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-
-  const subcategories = getSubcategories(form.category || '')
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -49,18 +45,12 @@ export default function ProductDetailPage() {
     const { name, value, type } = e.target
     const checked = (e.target as HTMLInputElement).checked
 
-    // Reset subcategory when category changes
-    if (name === 'category') {
-      setForm((prev) => ({ ...prev, category: value, subcategory: null }))
-    } else {
-      setForm((prev) => ({
-        ...prev,
-        [name]: type === 'checkbox' ? checked
-               : type === 'number'  ? (value === '' ? null : Number(value))
-               : value,
-      }))
-    }
-
+    setForm((prev) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked
+             : type === 'number'  ? (value === '' ? null : Number(value))
+             : value,
+    }))
     setDirty(true)
     setSuccess(false)
   }
@@ -91,6 +81,7 @@ export default function ProductDetailPage() {
   return (
     <div className="pf-page">
 
+      {/* Header */}
       <div className="pf-page-header">
         <div>
           <button className="pf-back" onClick={() => router.push('/products')}>
@@ -102,7 +93,10 @@ export default function ProductDetailPage() {
         <div className="pf-header-actions">
           {success && <span className="pf-saved">Saved</span>}
           {error && <span className="pf-error-inline">{error}</span>}
-          <button className="pf-btn-secondary" onClick={() => router.push('/products')}>
+          <button
+            className="pf-btn-secondary"
+            onClick={() => router.push('/products')}
+          >
             Cancel
           </button>
           <button
@@ -115,6 +109,7 @@ export default function ProductDetailPage() {
         </div>
       </div>
 
+      {/* Form */}
       <div className="pf-detail-grid">
 
         {/* LEFT COLUMN */}
@@ -138,32 +133,15 @@ export default function ProductDetailPage() {
               <input className="pf-input" name="brand" value={form.brand || ''} onChange={handleChange} />
             </div>
 
-            <div className="pf-field">
-              <label className="pf-label">Category</label>
-              <select className="pf-input" name="category" value={form.category || ''} onChange={handleChange}>
-                <option value="">— Select category —</option>
-                {categories.map((c) => (
-                  <option key={c.categoryid} value={c.categoryname}>{c.categoryname}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="pf-field">
-              <label className="pf-label">Sub-category</label>
-              <select
-                className="pf-input"
-                name="subcategory"
-                value={form.subcategory || ''}
-                onChange={handleChange}
-                disabled={!form.category || subcategories.length === 0}
-              >
-                <option value="">
-                  {!form.category ? '— Select a category first —' : '— Select sub-category —'}
-                </option>
-                {subcategories.map((s) => (
-                  <option key={s.subcategoryid} value={s.subcategoryname}>{s.subcategoryname}</option>
-                ))}
-              </select>
+            <div className="pf-field-row">
+              <div className="pf-field">
+                <label className="pf-label">Category</label>
+                <input className="pf-input" name="category" value={form.category || ''} onChange={handleChange} />
+              </div>
+              <div className="pf-field">
+                <label className="pf-label">Sub-category</label>
+                <input className="pf-input" name="subcategory" value={form.subcategory || ''} onChange={handleChange} />
+              </div>
             </div>
 
             <div className="pf-field-row">
@@ -276,6 +254,7 @@ export default function ProductDetailPage() {
 
           <div className="pf-card">
             <h2 className="pf-card-title">Flags</h2>
+
             <div className="pf-checkbox-list">
               <label className="pf-checkbox-row">
                 <input type="checkbox" name="isactive" checked={form.isactive ?? true} onChange={handleChange} />
@@ -284,6 +263,7 @@ export default function ProductDetailPage() {
                   <small>Product is available for orders</small>
                 </span>
               </label>
+
               <label className="pf-checkbox-row">
                 <input type="checkbox" name="isdropship" checked={form.isdropship ?? false} onChange={handleChange} />
                 <span>
@@ -291,6 +271,7 @@ export default function ProductDetailPage() {
                   <small>Fulfilled directly by supplier</small>
                 </span>
               </label>
+
               <label className="pf-checkbox-row">
                 <input type="checkbox" name="pickingbintracked" checked={form.pickingbintracked ?? false} onChange={handleChange} />
                 <span>
