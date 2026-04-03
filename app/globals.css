@@ -815,3 +815,53 @@ body {
     align-items: flex-start;
   }
 }
+
+
+/* ================================================================
+   New Product Page
+   Append this to the bottom of app/globals.css
+================================================================ */
+
+/* ── New product grid — three cards in a row on desktop ──────── */
+
+.pf-new-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .pf-new-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .pf-new-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Required field marker ───────────────────────────────────── */
+
+.pf-required {
+  color: #c0392b;
+  margin-left: 2px;
+}
+
+/* ── Field error state ───────────────────────────────────────── */
+
+.pf-input-error {
+  border-color: #c0392b;
+}
+
+.pf-input-error:focus {
+  border-color: #c0392b;
+}
+
+.pf-field-error {
+  font-size: 0.75rem;
+  color: #c0392b;
+  margin-top: 0.1rem;
+}
