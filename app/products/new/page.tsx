@@ -4,12 +4,18 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCategories } from '@/lib/useCategories'
+import { usePriceBands } from '@/lib/usePriceBands'
+import type { PricingCode } from '@/lib/types'
 
 const VAT_OPTIONS = ['Standard', 'Zero', 'Exempt']
+
+const formatPrice = (price: number) =>
+  new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(price)
 
 export default function NewProductPage() {
   const router = useRouter()
   const { categories, getSubcategories } = useCategories()
+  const { priceBands } = usePriceBands()
 
   const [form, setForm] = useState({
     sku: '',
@@ -17,7 +23,10 @@ export default function NewProductPage() {
     category: '',
     subcategory: '',
     unitofmeasure: '',
+    pricingcodeid: '' as string | number,
     salesprice: '',
+    wholesaleprice: '',
+    reducedwholesaleprice: '',
     costprice: '',
     vatstatus: 'Standard',
     weight: '',
@@ -35,13 +44,16 @@ export default function NewProductPage() {
 
   const subcategories = getSubcategories(form.category)
 
+  const selectedBand: PricingCode | undefined = priceBands.find(
+    (b) => b.pricingcodeid === Number(form.pricingcodeid)
+  )
+
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
     const { name, value, type } = e.target
     const checked = (e.target as HTMLInputElement).checked
 
-    // Reset subcategory when category changes
     if (name === 'category') {
       setForm((prev) => ({ ...prev, category: value, subcategory: '' }))
     } else {
@@ -75,24 +87,27 @@ export default function NewProductPage() {
     const { data, error } = await supabase
       .from('tblproducts')
       .insert({
-        sku:               form.sku.trim(),
-        productname:       form.productname.trim(),
-        category:          form.category || null,
-        subcategory:       form.subcategory || null,
-        unitofmeasure:     form.unitofmeasure.trim() || null,
-        salesprice:        parseFloat(form.salesprice) || 0,
-        costprice:         parseFloat(form.costprice) || 0,
-        vatstatus:         form.vatstatus,
-        weight:            parseFloat(form.weight) || null,
-        isactive:          form.isactive,
-        isdropship:        form.isdropship,
-        pickingbintracked: form.pickingbintracked,
-        bagsizedefault:    parseInt(form.bagsizedefault) || 0,
-        reorderlevel:      parseInt(form.reorderlevel) || 0,
-        reorderqty:        parseInt(form.reorderqty) || 0,
-        leadtimedays:      parseInt(form.leadtimedays) || 0,
-        dateadded:         new Date().toISOString(),
-        lastmodified:      new Date().toISOString(),
+        sku:                   form.sku.trim(),
+        productname:           form.productname.trim(),
+        category:              form.category || null,
+        subcategory:           form.subcategory || null,
+        unitofmeasure:         form.unitofmeasure.trim() || null,
+        pricingcodeid:         form.pricingcodeid ? Number(form.pricingcodeid) : null,
+        salesprice:            parseFloat(form.salesprice) || 0,
+        wholesaleprice:        parseFloat(form.wholesaleprice) || 0,
+        reducedwholesaleprice: parseFloat(form.reducedwholesaleprice) || 0,
+        costprice:             parseFloat(form.costprice) || 0,
+        vatstatus:             form.vatstatus,
+        weight:                parseFloat(form.weight) || null,
+        isactive:              form.isactive,
+        isdropship:            form.isdropship,
+        pickingbintracked:     form.pickingbintracked,
+        bagsizedefault:        parseInt(form.bagsizedefault) || 0,
+        reorderlevel:          parseInt(form.reorderlevel) || 0,
+        reorderqty:            parseInt(form.reorderqty) || 0,
+        leadtimedays:          parseInt(form.leadtimedays) || 0,
+        dateadded:             new Date().toISOString(),
+        lastmodified:          new Date().toISOString(),
       })
       .select('productid')
       .single()
@@ -207,13 +222,65 @@ export default function NewProductPage() {
         <div className="pf-card">
           <h2 className="pf-card-title">Pricing & VAT</h2>
 
+          <div className="pf-field">
+            <label className="pf-label">Price Band</label>
+            <select
+              className="pf-input"
+              name="pricingcodeid"
+              value={form.pricingcodeid}
+              onChange={handleChange}
+            >
+              <option value="">— No price band / enter manually —</option>
+              {priceBands.map((b) => (
+                <option key={b.pricingcodeid} value={b.pricingcodeid}>
+                  {b.pricingcode}{b.description ? ` — ${b.description}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedBand && (
+            <div className="pf-price-band-preview">
+              <span className="pf-price-band-label">Prices from band:</span>
+              <div className="pf-price-band-row">
+                <span>Retail</span>
+                <span>{formatPrice(selectedBand.salesprice)}</span>
+              </div>
+              <div className="pf-price-band-row">
+                <span>Wholesale</span>
+                <span>{formatPrice(selectedBand.wholesaleprice)}</span>
+              </div>
+              <div className="pf-price-band-row">
+                <span>Reduced Wholesale</span>
+                <span>{formatPrice(selectedBand.reducedwholesaleprice)}</span>
+              </div>
+            </div>
+          )}
+
+          <p className="pf-card-note" style={{ marginTop: selectedBand ? '1rem' : '0' }}>
+            {selectedBand
+              ? 'Override individual prices below — leave at 0 to use band price.'
+              : 'Select a price band or enter prices manually.'}
+          </p>
+
           <div className="pf-field-row">
             <div className="pf-field">
-              <label className="pf-label">Sales Price (£)</label>
+              <label className="pf-label">Retail Price (£) ex VAT</label>
               <input className="pf-input pf-input-num" type="number" step="0.01" min="0" name="salesprice" value={form.salesprice} onChange={handleChange} placeholder="0.00" />
             </div>
             <div className="pf-field">
-              <label className="pf-label">Cost Price (£)</label>
+              <label className="pf-label">Wholesale Price (£) ex VAT</label>
+              <input className="pf-input pf-input-num" type="number" step="0.01" min="0" name="wholesaleprice" value={form.wholesaleprice} onChange={handleChange} placeholder="0.00" />
+            </div>
+          </div>
+
+          <div className="pf-field-row">
+            <div className="pf-field">
+              <label className="pf-label">Reduced Wholesale (£) ex VAT</label>
+              <input className="pf-input pf-input-num" type="number" step="0.01" min="0" name="reducedwholesaleprice" value={form.reducedwholesaleprice} onChange={handleChange} placeholder="0.00" />
+            </div>
+            <div className="pf-field">
+              <label className="pf-label">Cost Price (£) ex VAT</label>
               <input className="pf-input pf-input-num" type="number" step="0.01" min="0" name="costprice" value={form.costprice} onChange={handleChange} placeholder="0.00" />
             </div>
           </div>

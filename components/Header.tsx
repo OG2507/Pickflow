@@ -6,14 +6,14 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 
 const NAV_ITEMS = [
-  { label: 'Products',       href: '/products' },
-  { label: 'Clients',        href: '/clients' },
-  { label: 'Suppliers',      href: '/suppliers' },
-  { label: 'Stock',          href: '/stock' },
-  { label: 'Orders',         href: '/orders' },
-  { label: 'Purchase Orders',href: '/purchase-orders' },
-  { label: 'Quotes',         href: '/quotes' },
-  { label: 'Reports',        href: '/reports' },
+  { label: 'Products',        href: '/products' },
+  { label: 'Clients',         href: '/clients' },
+  { label: 'Suppliers',       href: '/suppliers' },
+  { label: 'Stock',           href: '/stock' },
+  { label: 'Orders',          href: '/orders' },
+  { label: 'Purchase Orders', href: '/purchase-orders' },
+  { label: 'Quotes',          href: '/quotes' },
+  { label: 'Reports',         href: '/reports' },
 ]
 
 export default function Header() {
@@ -36,7 +36,6 @@ export default function Header() {
             height={48}
             priority
             onError={(e) => {
-              // If logo not found, show text fallback
               const target = e.target as HTMLImageElement
               target.style.display = 'none'
               const fallback = target.nextSibling as HTMLElement
@@ -58,6 +57,14 @@ export default function Header() {
             </Link>
           ))}
         </nav>
+
+        {/* Admin link — right side */}
+        <Link
+          href="/admin"
+          className={`pf-nav-admin ${isActive('/admin') ? 'pf-nav-active' : ''}`}
+        >
+          Admin
+        </Link>
 
         {/* Mobile hamburger */}
         <button
@@ -84,6 +91,13 @@ export default function Header() {
               {item.label}
             </Link>
           ))}
+          <Link
+            href="/admin"
+            className={`pf-mobile-nav-link ${isActive('/admin') ? 'pf-nav-active' : ''}`}
+            onClick={() => setMenuOpen(false)}
+          >
+            Admin
+          </Link>
         </nav>
       )}
     </header>

@@ -4,9 +4,13 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCategories } from '@/lib/useCategories'
-import type { Product } from '@/lib/types'
+import { usePriceBands } from '@/lib/usePriceBands'
+import type { Product, PricingCode } from '@/lib/types'
 
 const VAT_OPTIONS = ['Standard', 'Zero', 'Exempt']
+
+const formatPrice = (price: number) =>
+  new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(price)
 
 export default function ProductDetailPage() {
   const params = useParams()
@@ -14,6 +18,8 @@ export default function ProductDetailPage() {
   const id = params.id as string
 
   const { categories, getSubcategories } = useCategories()
+  const { priceBands } = usePriceBands()
+
   const [product, setProduct] = useState<Product | null>(null)
   const [form, setForm] = useState<Partial<Product>>({})
   const [loading, setLoading] = useState(true)
@@ -23,6 +29,11 @@ export default function ProductDetailPage() {
   const [success, setSuccess] = useState(false)
 
   const subcategories = getSubcategories(form.category || '')
+
+  // Find the selected price band object
+  const selectedBand: PricingCode | undefined = priceBands.find(
+    (b) => b.pricingcodeid === form.pricingcodeid
+  )
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -49,9 +60,10 @@ export default function ProductDetailPage() {
     const { name, value, type } = e.target
     const checked = (e.target as HTMLInputElement).checked
 
-    // Reset subcategory when category changes
     if (name === 'category') {
       setForm((prev) => ({ ...prev, category: value, subcategory: null }))
+    } else if (name === 'pricingcodeid') {
+      setForm((prev) => ({ ...prev, pricingcodeid: value ? Number(value) : null }))
     } else {
       setForm((prev) => ({
         ...prev,
@@ -191,28 +203,77 @@ export default function ProductDetailPage() {
           <div className="pf-card">
             <h2 className="pf-card-title">Pricing & VAT</h2>
 
+            {/* Price Band selector */}
+            <div className="pf-field">
+              <label className="pf-label">Price Band</label>
+              <select
+                className="pf-input"
+                name="pricingcodeid"
+                value={form.pricingcodeid ?? ''}
+                onChange={handleChange}
+              >
+                <option value="">— No price band / use manual prices —</option>
+                {priceBands.map((b) => (
+                  <option key={b.pricingcodeid} value={b.pricingcodeid}>
+                    {b.pricingcode}{b.description ? ` — ${b.description}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Show inherited prices from band */}
+            {selectedBand && (
+              <div className="pf-price-band-preview">
+                <span className="pf-price-band-label">Prices from band:</span>
+                <div className="pf-price-band-row">
+                  <span>Retail</span>
+                  <span>{formatPrice(selectedBand.salesprice)}</span>
+                </div>
+                <div className="pf-price-band-row">
+                  <span>Wholesale</span>
+                  <span>{formatPrice(selectedBand.wholesaleprice)}</span>
+                </div>
+                <div className="pf-price-band-row">
+                  <span>Reduced Wholesale</span>
+                  <span>{formatPrice(selectedBand.reducedwholesaleprice)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Manual price overrides */}
+            <p className="pf-card-note" style={{ marginTop: selectedBand ? '1rem' : '0' }}>
+              {selectedBand
+                ? 'Override individual prices below — leave at 0 to use band price.'
+                : 'Enter prices manually or select a price band above.'}
+            </p>
+
             <div className="pf-field-row">
               <div className="pf-field">
-                <label className="pf-label">Sales Price (£)</label>
+                <label className="pf-label">Retail Price (£) ex VAT</label>
                 <input className="pf-input pf-input-num" type="number" step="0.01" min="0" name="salesprice" value={form.salesprice ?? ''} onChange={handleChange} />
               </div>
               <div className="pf-field">
-                <label className="pf-label">Cost Price (£)</label>
-                <input className="pf-input pf-input-num" type="number" step="0.01" min="0" name="costprice" value={form.costprice ?? ''} onChange={handleChange} />
+                <label className="pf-label">Wholesale Price (£) ex VAT</label>
+                <input className="pf-input pf-input-num" type="number" step="0.01" min="0" name="wholesaleprice" value={form.wholesaleprice ?? ''} onChange={handleChange} />
               </div>
             </div>
 
             <div className="pf-field-row">
               <div className="pf-field">
-                <label className="pf-label">Reduced Wholesale (£)</label>
+                <label className="pf-label">Reduced Wholesale (£) ex VAT</label>
                 <input className="pf-input pf-input-num" type="number" step="0.01" min="0" name="reducedwholesaleprice" value={form.reducedwholesaleprice ?? ''} onChange={handleChange} />
               </div>
               <div className="pf-field">
-                <label className="pf-label">VAT Status</label>
-                <select className="pf-input" name="vatstatus" value={form.vatstatus || 'Standard'} onChange={handleChange}>
-                  {VAT_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
-                </select>
+                <label className="pf-label">Cost Price (£) ex VAT</label>
+                <input className="pf-input pf-input-num" type="number" step="0.01" min="0" name="costprice" value={form.costprice ?? ''} onChange={handleChange} />
               </div>
+            </div>
+
+            <div className="pf-field">
+              <label className="pf-label">VAT Status</label>
+              <select className="pf-input" name="vatstatus" value={form.vatstatus || 'Standard'} onChange={handleChange}>
+                {VAT_OPTIONS.map((v) => <option key={v} value={v}>{v}</option>)}
+              </select>
             </div>
           </div>
 

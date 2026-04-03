@@ -1,5 +1,5 @@
 // PickFlow — Database Types
-// Generated from schema v3.1
+// Generated from schema v3.1 + pricing updates
 // Keep in sync with Supabase schema
 
 export type Product = {
@@ -12,11 +12,12 @@ export type Product = {
   brand: string | null
   unitofmeasure: string | null
   barcode: string | null
-  salesprice: number
-  reducedwholesaleprice: number
-  costprice: number
+  salesprice: number              // overrides price band if set
+  wholesaleprice: number          // overrides price band if set
+  reducedwholesaleprice: number   // overrides price band if set
+  pricingcodeid: number | null    // reference to tblpricingcodes
   vatstatus: 'Standard' | 'Zero' | 'Exempt'
-  weight: number | null        // grams
+  weight: number | null           // grams
   width: number | null
   height: number | null
   depth: number | null
@@ -31,6 +32,16 @@ export type Product = {
   productimagepath: string | null
   dateadded: string | null
   lastmodified: string | null
+}
+
+export type PricingCode = {
+  pricingcodeid: number
+  pricingcode: string
+  description: string | null
+  salesprice: number
+  wholesaleprice: number
+  reducedwholesaleprice: number
+  isactive: boolean
 }
 
 export type Category = {
@@ -96,7 +107,7 @@ export type Client = {
   phone: string | null
   address1: string | null
   address2: string | null
-  address3: string | null          // v3.1
+  address3: string | null
   town: string | null
   county: string | null
   postcode: string | null
@@ -107,6 +118,19 @@ export type Client = {
   clientlogopath: string | null
   isactive: boolean
   dateadded: string | null
+  notes: string | null
+}
+
+export type ClientPricing = {
+  clientpricingid: number
+  clientid: number
+  pricingtype: string | null      // 'Fixed Product' | 'Fixed Category' | 'Fixed PriceBand' | 'Percentage Discount'
+  productid: number | null
+  categoryid: number | null
+  pricingcodeid: number | null    // for price band fixed pricing
+  fixedprice: number | null
+  discountpercent: number
+  isactive: boolean
   notes: string | null
 }
 
@@ -123,7 +147,7 @@ export type Order = {
   shiptoname: string | null
   shiptoaddress1: string | null
   shiptoaddress2: string | null
-  shiptoaddress3: string | null    // v3.1
+  shiptoaddress3: string | null
   shiptetown: string | null
   shiptocounty: string | null
   shiptopostcode: string | null
@@ -132,13 +156,13 @@ export type Order = {
   trackingnumber: string | null
   despatchdate: string | null
   subtotal: number
-  productvat: number               // v3.1
-  shippingvat: number              // v3.1
+  productvat: number
+  shippingvat: number
   totalvat: number
   shippingcost: number
   ordertotal: number
   ordertotalincvat: number
-  totalweightg: number             // v3.1 — grams
+  totalweightg: number
   notes: string | null
   createdby: string | null
 }
@@ -170,9 +194,9 @@ export type ShippingRate = {
   price: number
   isactive: boolean
   displayorder: number
-  minweightg: number | null        // v3.1 — grams
-  maxweightg: number | null        // v3.1 — grams
-  servicecode: string | null       // v3.1 — Royal Mail Click and Drop
+  minweightg: number | null
+  maxweightg: number | null
+  servicecode: string | null
   notes: string | null
 }
 
