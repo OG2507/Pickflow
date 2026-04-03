@@ -317,3 +317,501 @@ html, body {
   color: var(--text-muted);
   font-size: 0.875rem;
 }
+
+
+/* ================================================================
+   Product Detail Page
+   Append this to the bottom of app/globals.css
+================================================================ */
+
+/* ── Back link ───────────────────────────────────────────────── */
+
+.pf-back {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 0.4rem;
+  display: block;
+  transition: color 0.15s;
+}
+
+.pf-back:hover {
+  color: var(--text);
+}
+
+/* ── Header actions ──────────────────────────────────────────── */
+
+.pf-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pf-saved {
+  font-size: 0.8125rem;
+  color: #2d7a4f;
+  font-weight: 500;
+}
+
+.pf-error-inline {
+  font-size: 0.8125rem;
+  color: var(--red);
+}
+
+.pf-btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius);
+  padding: 0.5rem 1rem;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.pf-btn-secondary:hover {
+  background: var(--row-hover);
+}
+
+.pf-btn-disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Detail grid — two columns on desktop, single on mobile ──── */
+
+.pf-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .pf-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pf-header-actions {
+    width: 100%;
+  }
+
+  .pf-page-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+}
+
+.pf-detail-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* ── Cards ───────────────────────────────────────────────────── */
+
+.pf-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+
+.pf-card-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  padding-bottom: 0.625rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.pf-card-note {
+  font-size: 0.8125rem;
+  color: var(--text-faint);
+  margin-bottom: 0.875rem;
+  margin-top: -0.5rem;
+}
+
+.pf-card-meta {
+  background: var(--row-stripe);
+}
+
+/* ── Form fields ─────────────────────────────────────────────── */
+
+.pf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.875rem;
+}
+
+.pf-field:last-child {
+  margin-bottom: 0;
+}
+
+.pf-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+@media (max-width: 480px) {
+  .pf-field-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pf-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.pf-textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.pf-input-num {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+/* ── Checkboxes ──────────────────────────────────────────────── */
+
+.pf-checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pf-checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.pf-checkbox-row input[type="checkbox"] {
+  margin-top: 2px;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.pf-checkbox-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.pf-checkbox-row strong {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.pf-checkbox-row small {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── Meta info ───────────────────────────────────────────────── */
+
+.pf-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+
+.pf-meta-row:last-child {
+  border-bottom: none;
+}
+
+.pf-meta-row span:first-child {
+  color: var(--text-muted);
+}
+
+.pf-meta-row span:last-child {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+/* ── Products list — mobile card view ────────────────────────── */
+
+@media (max-width: 640px) {
+  .pf-table-wrap {
+    border: none;
+    background: transparent;
+  }
+
+  .pf-table thead {
+    display: none;
+  }
+
+  .pf-table,
+  .pf-table tbody,
+  .pf-table tr,
+  .pf-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .pf-table tbody tr {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 0.625rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .pf-table tbody tr:nth-child(even) {
+    background: var(--surface);
+  }
+
+  .pf-table td {
+    padding: 0.2rem 0;
+    border: none;
+    font-size: 0.875rem;
+  }
+
+  .pf-table td:empty {
+    display: none;
+  }
+
+  .pf-sku {
+    font-size: 0.9375rem;
+    margin-bottom: 0.2rem;
+    display: block;
+  }
+
+  .pf-col-right,
+  .pf-col-center {
+    text-align: left;
+  }
+}
+
+
+/* ================================================================
+   Header, Footer & Layout
+   Append this to the bottom of app/globals.css
+================================================================ */
+
+/* ── Site layout ─────────────────────────────────────────────── */
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.pf-main {
+  flex: 1;
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+
+.pf-header {
+  background: #ffffff;
+  border-bottom: 3px solid #13C9A8;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.pf-header-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+/* ── Logo ────────────────────────────────────────────────────── */
+
+.pf-logo {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.pf-logo img {
+  height: 48px;
+  width: auto;
+}
+
+.pf-logo-fallback {
+  display: none;
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: #152039;
+  letter-spacing: -0.03em;
+  font-family: var(--font-sans);
+}
+
+/* Show fallback text if logo image fails to load */
+.pf-logo img[style*="display: none"] + .pf-logo-fallback {
+  display: block;
+}
+
+/* ── Desktop nav ─────────────────────────────────────────────── */
+
+.pf-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.pf-nav-link {
+  display: block;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #152039;
+  text-decoration: none;
+  border-radius: var(--radius);
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  opacity: 0.7;
+}
+
+.pf-nav-link:hover {
+  background: #f0fdf9;
+  color: #152039;
+  opacity: 1;
+}
+
+.pf-nav-active {
+  background: #f0fdf9;
+  color: #13C9A8;
+  opacity: 1;
+  font-weight: 600;
+}
+
+/* ── Mobile hamburger ────────────────────────────────────────── */
+
+.pf-hamburger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem;
+  margin-left: auto;
+}
+
+.pf-ham-line {
+  display: block;
+  width: 22px;
+  height: 2px;
+  background: #152039;
+  border-radius: 2px;
+  transition: transform 0.2s, opacity 0.2s;
+}
+
+.pf-ham-open-1 { transform: translateY(7px) rotate(45deg); }
+.pf-ham-open-2 { opacity: 0; }
+.pf-ham-open-3 { transform: translateY(-7px) rotate(-45deg); }
+
+/* ── Mobile nav ──────────────────────────────────────────────── */
+
+.pf-mobile-nav {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-top: 1px solid var(--border);
+  padding: 0.5rem 0;
+}
+
+.pf-mobile-nav-link {
+  display: block;
+  padding: 0.75rem 2rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #152039;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.pf-mobile-nav-link:hover {
+  background: #f0fdf9;
+}
+
+.pf-mobile-nav-link.pf-nav-active {
+  color: #13C9A8;
+  background: #f0fdf9;
+}
+
+/* ── Responsive — hide desktop nav, show hamburger ───────────── */
+
+@media (max-width: 900px) {
+  .pf-nav {
+    display: none;
+  }
+
+  .pf-hamburger {
+    display: flex;
+  }
+}
+
+/* ── Footer ──────────────────────────────────────────────────── */
+
+.pf-footer {
+  background: #152039;
+  border-top: 3px solid #13C9A8;
+  margin-top: auto;
+}
+
+.pf-footer-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pf-footer-version {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: #13C9A8;
+  font-weight: 500;
+}
+
+.pf-footer-copy {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.5);
+}
+
+@media (max-width: 480px) {
+  .pf-footer-inner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
