@@ -292,6 +292,11 @@ export default function StockPage() {
     <div className="pf-page">
       <div className="pf-page-header">
         <div>
+          {productParam && (
+            <button className="pf-back" onClick={() => router.back()}>
+              ← Back to Product
+            </button>
+          )}
           <h1 className="pf-page-title">Stock</h1>
           <p className="pf-page-subtitle">
             {loading ? '—' : view === 'product'

@@ -1858,3 +1858,86 @@ body {
 .pf-link-btn:hover {
   color: var(--accent);
 }
+
+
+/* ================================================================
+   Header Nav Dropdown
+   Append this to the bottom of app/globals.css
+================================================================ */
+
+.pf-nav-dropdown-wrap {
+  position: relative;
+}
+
+.pf-nav-dropdown-trigger {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+}
+
+.pf-nav-chevron {
+  font-size: 0.65rem;
+  opacity: 0.6;
+  margin-top: 1px;
+}
+
+.pf-nav-dropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  min-width: 140px;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.pf-nav-dropdown-item {
+  display: block;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text);
+  text-decoration: none;
+  transition: background 0.1s;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.pf-nav-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.pf-nav-dropdown-item:hover {
+  background: var(--row-hover);
+}
+
+.pf-nav-dropdown-active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Mobile submenu */
+.pf-mobile-nav-group-label {
+  padding: 0.5rem 1.25rem 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border-top: 1px solid var(--border);
+  margin-top: 0.25rem;
+}
+
+.pf-mobile-nav-child {
+  padding-left: 2rem;
+  font-size: 0.875rem;
+}

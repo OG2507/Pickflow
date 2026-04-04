@@ -412,13 +412,20 @@ export default function ReorderPage() {
                       </span>
                     </td>
                     <td className="pf-col-right" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        className="pf-input pf-input-sm pf-input-num pf-qty-input"
-                        type="number"
-                        min="1"
-                        value={line.orderqty}
-                        onChange={(e) => updateQty(line.productid, parseInt(e.target.value) || 1)}
-                      />
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem' }}>
+                        <input
+                          className="pf-input pf-input-sm pf-input-num pf-qty-input"
+                          type="number"
+                          min="1"
+                          value={line.orderqty}
+                          onChange={(e) => updateQty(line.productid, parseInt(e.target.value) || 1)}
+                        />
+                        {line.reorderqty > 0 && (
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-faint)' }}>
+                            Usual: {line.reorderqty}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <select
