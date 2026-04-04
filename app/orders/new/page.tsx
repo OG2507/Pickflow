@@ -47,7 +47,7 @@ export default function NewOrderPage() {
     shiptoaddress1: '',
     shiptoaddress2: '',
     shiptoaddress3: '',
-    shiptetown: '',
+    shiptotown: '',
     shiptocounty: '',
     shiptopostcode: '',
     shiptocountry: 'United Kingdom',
@@ -92,7 +92,7 @@ export default function NewOrderPage() {
       shiptoaddress1:  client.address1 || '',
       shiptoaddress2:  client.address2 || '',
       shiptoaddress3:  client.address3 || '',
-      shiptetown:      client.town || '',
+      shiptotown:      client.town || '',
       shiptocounty:    client.county || '',
       shiptopostcode:  client.postcode || '',
       shiptocountry:   client.country || 'United Kingdom',
@@ -162,7 +162,7 @@ export default function NewOrderPage() {
         shiptoaddress1: form.shiptoaddress1.trim() || null,
         shiptoaddress2: form.shiptoaddress2.trim() || null,
         shiptoaddress3: form.shiptoaddress3.trim() || null,
-        shiptetown:     form.shiptetown.trim() || null,
+        shiptotown:     form.shiptotown.trim() || null,
         shiptocounty:   form.shiptocounty.trim() || null,
         shiptopostcode: form.shiptopostcode.trim() || null,
         shiptocountry:  form.shiptocountry,
@@ -344,7 +344,7 @@ export default function NewOrderPage() {
           <div className="pf-field-row">
             <div className="pf-field">
               <label className="pf-label">Town / City</label>
-              <input className="pf-input" name="shiptetown" value={form.shiptetown} onChange={handleChange} />
+              <input className="pf-input" name="shiptotown" value={form.shiptotown} onChange={handleChange} />
             </div>
             <div className="pf-field">
               <label className="pf-label">County</label>

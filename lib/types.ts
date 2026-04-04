@@ -15,7 +15,7 @@ export type Product = {
   salesprice: number              // overrides price band if set
   wholesaleprice: number          // overrides price band if set
   reducedwholesaleprice: number   // overrides price band if set
-  pricingcodeid: number | null    // reference to tblpricingcodes
+  pricingcode: string | null      // reference to tblpricingcodes.pricingcode
   vatstatus: 'Standard' | 'Zero' | 'Exempt'
   weight: number | null           // grams
   width: number | null
@@ -127,7 +127,7 @@ export type ClientPricing = {
   pricingtype: string | null      // 'Fixed Product' | 'Fixed Category' | 'Fixed PriceBand' | 'Percentage Discount'
   productid: number | null
   categoryid: number | null
-  pricingcodeid: number | null    // for price band fixed pricing
+  pricingcode: string | null      // for price band fixed pricing by code
   fixedprice: number | null
   discountpercent: number
   isactive: boolean
@@ -148,7 +148,7 @@ export type Order = {
   shiptoaddress1: string | null
   shiptoaddress2: string | null
   shiptoaddress3: string | null
-  shiptetown: string | null
+  shiptotown: string | null
   shiptocounty: string | null
   shiptopostcode: string | null
   shiptocountry: string

@@ -17,7 +17,7 @@ type Order = {
   shiptoaddress1: string | null
   shiptoaddress2: string | null
   shiptoaddress3: string | null
-  shiptetown: string | null
+  shiptotown: string | null
   shiptocounty: string | null
   shiptopostcode: string | null
   shiptocountry: string
@@ -68,7 +68,7 @@ type Product = {
   salesprice: number
   wholesaleprice: number
   reducedwholesaleprice: number
-  pricingcodeid: number | null
+  pricingcode: string | null
   vatstatus: string
   weight: number | null
   isactive: boolean
@@ -103,6 +103,7 @@ export default function OrderDetailPage() {
   const [productResults, setProductResults] = useState<Product[]>([])
   const [showProductSearch, setShowProductSearch] = useState(false)
   const [addingLine, setAddingLine] = useState(false)
+  const [shippingInvalid, setShippingInvalid] = useState(false)
 
   // Client info for pricing
   const [clientIsReduced, setClientIsReduced] = useState(false)
@@ -175,11 +176,42 @@ export default function OrderDetailPage() {
     const subtotal = currentLines.reduce((sum, l) => sum + l.linetotal, 0)
     const productVAT = currentLines.reduce((sum, l) => sum + l.vatamount, 0)
     const hasStandardLines = currentLines.some((l) => l.vatstatus === 'Standard')
-    const shippingVAT = hasStandardLines ? shippingCost * VAT_RATE : 0
-    const totalVAT = productVAT + shippingVAT
-    const orderTotal = subtotal + shippingCost
-    const orderTotalIncVAT = subtotal + productVAT + shippingCost + shippingVAT
     const totalWeightG = await calculateWeight(currentLines)
+
+    // ── Check if current shipping method is still valid for new weight ──
+    // If not, clear it to force reselection — prevents underpaid postage
+    let validatedShippingCost = shippingCost
+    let validatedShippingMethod = order?.shippingmethod || null
+
+    if (validatedShippingMethod && totalWeightG > 0) {
+      const { data: rateCheck } = await supabase
+        .from('tblshippingrates')
+        .select('methodname')
+        .eq('methodname', validatedShippingMethod)
+        .eq('isactive', true)
+        .or(`minweightg.is.null,minweightg.lte.${totalWeightG}`)
+        .or(`maxweightg.is.null,maxweightg.gte.${totalWeightG}`)
+        .maybeSingle()
+
+      if (!rateCheck) {
+        // Shipping method no longer valid — clear it
+        validatedShippingCost = 0
+        validatedShippingMethod = null
+        await supabase
+          .from('tblorders')
+          .update({ shippingmethod: null, shippingcost: 0 })
+          .eq('orderid', id)
+        setOrder((prev) => prev ? { ...prev, shippingmethod: null, shippingcost: 0 } : prev)
+        setShippingInvalid(true)
+      } else {
+        setShippingInvalid(false)
+      }
+    }
+
+    const shippingVAT = hasStandardLines ? validatedShippingCost * VAT_RATE : 0
+    const totalVAT = productVAT + shippingVAT
+    const orderTotal = subtotal + validatedShippingCost
+    const orderTotalIncVAT = subtotal + productVAT + validatedShippingCost + shippingVAT
 
     await supabase
       .from('tblorders')
@@ -230,13 +262,15 @@ export default function OrderDetailPage() {
       return
     }
     const search = async () => {
-      const { data } = await supabase
+      const term = productSearch.trim()
+      const { data, error } = await supabase
         .from('tblproducts')
-        .select('productid, sku, productname, salesprice, wholesaleprice, reducedwholesaleprice, pricingcodeid, vatstatus, weight, isactive')
+        .select('productid, sku, productname, salesprice, wholesaleprice, reducedwholesaleprice, pricingcode, vatstatus, weight, isactive')
         .eq('isactive', true)
-        .or(`sku.ilike.%${productSearch}%,productname.ilike.%${productSearch}%`)
+        .or(`sku.ilike.%${term}%,productname.ilike.%${term}%`)
         .limit(8)
 
+      if (error) console.error('Product search error:', error)
       setProductResults(data || [])
     }
     const timer = setTimeout(search, 200)
@@ -248,23 +282,23 @@ export default function OrderDetailPage() {
     // Check for fixed client pricing first
     const { data: fixedPrice } = await supabase
       .from('tblclientpricing')
-      .select('fixedprice, pricingcodeid')
+      .select('fixedprice, pricingcode')
       .eq('clientid', order!.clientid)
       .eq('isactive', true)
       .not('fixedprice', 'is', null)
       .limit(1)
       .maybeSingle()
 
-    if (fixedPrice?.fixedprice && fixedPrice.pricingcodeid === product.pricingcodeid) {
+    if (fixedPrice?.fixedprice && fixedPrice.pricingcode === product.pricingcode) {
       return fixedPrice.fixedprice
     }
 
     // If product has a price band, use band prices
-    if (product.pricingcodeid) {
+    if (product.pricingcode) {
       const { data: band } = await supabase
         .from('tblpricingcodes')
         .select('salesprice, wholesaleprice, reducedwholesaleprice')
-        .eq('pricingcodeid', product.pricingcodeid)
+        .eq('pricingcode', product.pricingcode)
         .single()
 
       if (band) {
@@ -365,6 +399,7 @@ export default function OrderDetailPage() {
       .eq('orderid', id)
 
     setOrder((prev) => prev ? { ...prev, shippingmethod: methodName, shippingcost: price } : prev)
+    setShippingInvalid(false)
     setDirty(false)
     await recalculateTotals(lines, price)
   }
@@ -384,7 +419,7 @@ export default function OrderDetailPage() {
         shiptoaddress1: order.shiptoaddress1,
         shiptoaddress2: order.shiptoaddress2,
         shiptoaddress3: order.shiptoaddress3,
-        shiptetown:     order.shiptetown,
+        shiptotown:     order.shiptotown,
         shiptocounty:   order.shiptocounty,
         shiptopostcode: order.shiptopostcode,
         shiptocountry:  order.shiptocountry,
@@ -417,6 +452,23 @@ export default function OrderDetailPage() {
     await supabase.from('tblorders').update(updates).eq('orderid', id)
     setOrder((prev) => prev ? { ...prev, ...updates } : prev)
   }
+
+  // ── Step back ──────────────────────────────────────────────────
+  const stepBack = async () => {
+    if (!order) return
+    const flow = statusFlow(order)
+    const currentIndex = flow.indexOf(order.status)
+    if (currentIndex <= 0) return
+
+    const prevStatus = flow[currentIndex - 1]
+    const updates: any = { status: prevStatus }
+    // Clear despatch date if stepping back from Dispatched
+    if (order.status === 'Dispatched') updates.despatchdate = null
+
+    await supabase.from('tblorders').update(updates).eq('orderid', id)
+    setOrder((prev) => prev ? { ...prev, ...updates } : prev)
+  }
+
 
   const cancelOrder = async () => {
     await supabase.from('tblorders').update({ status: 'Cancelled' }).eq('orderid', id)
@@ -465,10 +517,17 @@ export default function OrderDetailPage() {
           {/* Status badge */}
           <span className="pf-order-status-badge">{order.status}</span>
 
-          {/* Advance status */}
+          {/* Step back */}
+          {currentIndex > 0 && !isCancelled && !isCompleted && (
+            <button className="pf-btn-secondary" onClick={stepBack}>
+              ← Back to {flow[currentIndex - 1]}
+            </button>
+          )}
+
+          {/* Advance status — Print Order when next is Printed, otherwise normal advance */}
           {nextStatus && !isCancelled && (
             <button className="pf-btn-primary" onClick={advanceStatus}>
-              → {nextStatus}
+              {nextStatus === 'Printed' ? '🖨 Print Order' : `→ ${nextStatus}`}
             </button>
           )}
 
@@ -505,6 +564,21 @@ export default function OrderDetailPage() {
           <div className="pf-status-step pf-step-cancelled">Cancelled</div>
         )}
       </div>
+
+      {/* Print placeholder note */}
+      {order.status === 'New' && !isCancelled && (
+        <div className="pf-print-note">
+          🖨 Clicking <strong>Print Order</strong> will advance the status to Printed.
+          Picking list and packing slip generation will be added in a future update.
+        </div>
+      )}
+
+      {/* Shipping invalidated warning */}
+      {shippingInvalid && (
+        <div className="pf-shipping-invalid-warning">
+          ⚠️ <strong>Shipping method cleared.</strong> The order weight has changed and the previously selected shipping method is no longer valid for this weight. Please select a new shipping method below.
+        </div>
+      )}
 
       <div className="pf-order-grid">
 
@@ -709,7 +783,7 @@ export default function OrderDetailPage() {
             <div className="pf-field-row">
               <div className="pf-field">
                 <label className="pf-label">Town</label>
-                <input className="pf-input" name="shiptetown" value={order.shiptetown || ''} onChange={handleOrderChange} />
+                <input className="pf-input" name="shiptotown" value={order.shiptotown || ''} onChange={handleOrderChange} />
               </div>
               <div className="pf-field">
                 <label className="pf-label">County</label>
