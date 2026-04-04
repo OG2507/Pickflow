@@ -1781,3 +1781,37 @@ body {
   margin-bottom: 1.25rem;
   line-height: 1.5;
 }
+
+
+
+/* ================================================================
+   Purchase Orders
+   Append this to the bottom of app/globals.css
+================================================================ */
+
+.pf-text-faint {
+  color: var(--text-faint);
+}
+
+.pf-alert-success {
+  background: var(--green-light);
+  color: var(--green);
+  border: 1px solid #c8e6d0;
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  margin-top: 0.75rem;
+}
+
+.pf-modal-wide {
+  max-width: 720px;
+}
+
+@media print {
+  .pf-header,
+  .pf-footer,
+  .pf-modal-header button,
+  .pf-modal-footer {
+    display: none;
+  }
+}
