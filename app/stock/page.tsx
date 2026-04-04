@@ -107,7 +107,7 @@ export default function StockPage() {
     }
 
     const rows = (data || []).filter(
-      (r: any) => r.tblproducts?.isactive && r.tbllocations?.isactive
+      (r: any) => r.tblproducts?.isactive && r.tbllocations?.isactive && r.quantityonhand > 0
     )
 
     // Build by-product view
