@@ -1465,3 +1465,316 @@ body {
   gap: 0.5rem;
   justify-content: flex-end;
 }
+
+
+/* ================================================================
+   Orders
+   Append this to the bottom of app/globals.css
+================================================================ */
+
+/* ── Order status badges ─────────────────────────────────────── */
+
+.pf-badge-new          { background: #e8f0fb; color: #1a3a8a; }
+.pf-badge-printed      { background: #f3e8fb; color: #5a1a8a; }
+.pf-badge-postprinted  { background: #fbe8f3; color: #8a1a5a; }
+.pf-badge-picking      { background: var(--amber-light); color: var(--amber); }
+.pf-badge-dispatched   { background: var(--green-light); color: var(--green); }
+.pf-badge-invoiced     { background: #e8fbf3; color: #1a8a5a; }
+.pf-badge-completed    { background: #f0f0f0; color: #555; }
+.pf-badge-cancelled    { background: var(--red-light); color: var(--red); }
+
+/* ── Order status badge in header ────────────────────────────── */
+
+.pf-order-status-badge {
+  display: inline-block;
+  padding: 0.3rem 0.75rem;
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  background: var(--row-stripe);
+  color: var(--text);
+  border: 1px solid var(--border-dark);
+}
+
+/* ── Status flow indicator ───────────────────────────────────── */
+
+.pf-status-flow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 1.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.pf-status-step {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.3rem 0.75rem;
+  white-space: nowrap;
+  border-top: 2px solid var(--border);
+  border-bottom: 2px solid var(--border);
+  border-right: 1px solid var(--border);
+  color: var(--text-faint);
+  background: var(--surface);
+}
+
+.pf-status-step:first-child {
+  border-left: 2px solid var(--border);
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.pf-status-step:last-child {
+  border-right: 2px solid var(--border);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.pf-step-done {
+  background: var(--green-light);
+  color: var(--green);
+  border-color: #c8e6d0;
+}
+
+.pf-step-current {
+  background: #13C9A8;
+  color: white;
+  border-color: #13C9A8;
+  font-weight: 600;
+}
+
+.pf-step-future {
+  color: var(--text-faint);
+}
+
+.pf-step-cancelled {
+  background: var(--red-light);
+  color: var(--red);
+  border-color: #f5c6c6;
+}
+
+/* ── Order grid layout ───────────────────────────────────────── */
+
+.pf-order-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .pf-order-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pf-order-lines-col,
+.pf-order-details-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* ── Qty input in order lines ────────────────────────────────── */
+
+.pf-qty-input {
+  width: 60px;
+  text-align: right;
+}
+
+/* ── Order totals ────────────────────────────────────────────── */
+
+.pf-order-totals {
+  margin-top: 1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--border);
+}
+
+.pf-order-total-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  padding: 0.2rem 0;
+  color: var(--text-muted);
+}
+
+.pf-order-total-row span:last-child {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.pf-order-total-final {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 2px solid var(--border);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pf-order-total-final span:last-child {
+  color: var(--accent);
+}
+
+.pf-order-weight {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  text-align: right;
+  margin-top: 0.4rem;
+}
+
+/* ── Shipping options ────────────────────────────────────────── */
+
+.pf-shipping-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.pf-shipping-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  font-size: 0.8125rem;
+}
+
+.pf-shipping-option:hover {
+  border-color: #13C9A8;
+  background: #f0fdf9;
+}
+
+.pf-shipping-selected {
+  border-color: #13C9A8;
+  background: #f0fdf9;
+  font-weight: 500;
+}
+
+.pf-shipping-name {
+  color: var(--text);
+}
+
+.pf-shipping-price {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--accent);
+}
+
+/* ── Client search dropdown ──────────────────────────────────── */
+
+.pf-client-search {
+  position: relative;
+}
+
+.pf-client-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  z-index: 50;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.pf-client-dropdown-empty {
+  padding: 0.75rem 1rem;
+  font-size: 0.8125rem;
+  color: var(--text-faint);
+}
+
+.pf-client-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+
+.pf-client-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.pf-client-dropdown-item:hover {
+  background: var(--row-hover);
+}
+
+.pf-client-dropdown-name {
+  font-size: 0.875rem;
+  color: var(--text);
+  flex: 1;
+}
+
+.pf-client-dropdown-code {
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* ── Selected client display ─────────────────────────────────── */
+
+.pf-selected-client {
+  background: var(--green-light);
+  border: 1px solid #c8e6d0;
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+}
+
+.pf-selected-client-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pf-selected-client-code {
+  font-size: 0.8125rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+
+/* ── Product search in order ─────────────────────────────────── */
+
+.pf-product-search-wrap {
+  position: relative;
+  margin-bottom: 1rem;
+}
+
+/* ── Postcode in list ────────────────────────────────────────── */
+
+.pf-postcode {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+/* ================================================================
+   Shipping Rates Admin
+   Append this to the bottom of app/globals.css
+================================================================ */
+
+.pf-shipping-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.pf-shipping-rates-note {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--row-stripe);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}

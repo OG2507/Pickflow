@@ -14,15 +14,14 @@ const ADMIN_SECTIONS = [
     href: '/admin/locations',
   },
   {
-    title: 'Categories',
-    description: 'Manage product categories and sub-categories.',
-    href: '/admin/categories',
-    comingSoon: true,
-  },
-  {
     title: 'Shipping Rates',
     description: 'Manage Royal Mail shipping methods, weight bands, and prices.',
     href: '/admin/shipping-rates',
+  },
+  {
+    title: 'Categories',
+    description: 'Manage product categories and sub-categories.',
+    href: '/admin/categories',
     comingSoon: true,
   },
   {
