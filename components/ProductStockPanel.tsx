@@ -66,7 +66,7 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
         </h2>
         <button
           className="pf-btn-edit"
-          onClick={() => router.push('/stock')}
+          onClick={() => router.push(`/stock?product=${productid}`)}
         >
           Go to Stock →
         </button>

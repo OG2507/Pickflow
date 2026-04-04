@@ -197,49 +197,73 @@ export default function ReorderPage() {
     }
 
     const createdPOs: string[] = []
+    const updatedPOs: string[] = []
 
     for (const [supplierid, poLines] of bySupplier) {
-      // Generate PO number
-      const year = new Date().getFullYear()
-      const { data: existing } = await supabase
+      // Check for existing Draft PO for this supplier first
+      const { data: existingDraft } = await supabase
         .from('tblpurchaseorders')
-        .select('ponumber')
-        .ilike('ponumber', `PO-${year}-%`)
-        .order('ponumber', { ascending: false })
+        .select('poid, ponumber')
+        .eq('supplierid', supplierid)
+        .eq('status', 'Draft')
+        .order('orderdate', { ascending: false })
         .limit(1)
+        .maybeSingle()
 
-      let nextNum = 1
-      if (existing && existing.length > 0) {
-        const last = existing[0].ponumber?.split('-').pop()
-        if (last) nextNum = parseInt(last) + 1
+      let poid: number
+      let ponumber: string
+
+      if (existingDraft) {
+        // Add lines to existing draft PO
+        poid = existingDraft.poid
+        ponumber = existingDraft.ponumber
+        updatedPOs.push(ponumber)
+      } else {
+        // Generate new PO number
+        const year = new Date().getFullYear()
+        const { data: existing } = await supabase
+          .from('tblpurchaseorders')
+          .select('ponumber')
+          .ilike('ponumber', `PO-${year}-%`)
+          .order('ponumber', { ascending: false })
+          .limit(1)
+
+        let nextNum = 1
+        if (existing && existing.length > 0) {
+          const last = existing[0].ponumber?.split('-').pop()
+          if (last) nextNum = parseInt(last) + 1
+        }
+        ponumber = `PO-${year}-${nextNum.toString().padStart(5, '0')}`
+
+        // Create new PO header
+        const { data: po, error: poError } = await supabase
+          .from('tblpurchaseorders')
+          .insert({
+            ponumber,
+            supplierid,
+            orderdate:    new Date().toISOString(),
+            status:       'Draft',
+            subtotal:     0,
+            deliverycost: 0,
+            pototal:      0,
+            createdby:    'system',
+          })
+          .select('poid')
+          .single()
+
+        if (poError || !po) {
+          setError('Failed to create PO: ' + poError?.message)
+          setCreating(false)
+          return
+        }
+
+        poid = po.poid
+        createdPOs.push(ponumber)
       }
-      const ponumber = `PO-${year}-${nextNum.toString().padStart(5, '0')}`
 
-      // Create PO header
-      const { data: po, error: poError } = await supabase
-        .from('tblpurchaseorders')
-        .insert({
-          ponumber,
-          supplierid,
-          orderdate: new Date().toISOString(),
-          status:    'Draft',
-          subtotal:  0,
-          deliverycost: 0,
-          pototal:   0,
-          createdby: 'system',
-        })
-        .select('poid')
-        .single()
-
-      if (poError || !po) {
-        setError('Failed to create PO: ' + poError?.message)
-        setCreating(false)
-        return
-      }
-
-      // Create PO lines
+      // Insert lines into the PO (new or existing)
       const lineInserts = poLines.map((l) => ({
-        poid:             po.poid,
+        poid,
         productid:        l.productid,
         quantityordered:  l.orderqty,
         quantityreceived: 0,
@@ -252,12 +276,12 @@ export default function ReorderPage() {
       }))
 
       await supabase.from('tblpurchaseorderlines').insert(lineInserts)
-      createdPOs.push(ponumber)
     }
 
-    setSuccess(
-      `Created ${createdPOs.length} PO${createdPOs.length > 1 ? 's' : ''}: ${createdPOs.join(', ')}`
-    )
+    const parts = []
+    if (createdPOs.length > 0) parts.push(`Created: ${createdPOs.join(', ')}`)
+    if (updatedPOs.length > 0) parts.push(`Added to existing: ${updatedPOs.join(', ')}`)
+    setSuccess(parts.join(' · '))
     setCreating(false)
     await fetchReorderData()
   }

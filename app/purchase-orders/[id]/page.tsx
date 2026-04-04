@@ -35,6 +35,7 @@ type POLine = {
   delivertolocationid: number | null
   delivertolocationcode: string | null
   status: string
+  reorderqty: number
 }
 
 type Product = {
@@ -112,7 +113,7 @@ export default function PurchaseOrderDetailPage() {
         polineid, productid, quantityordered, quantityreceived,
         unitcostusd, unitcost, landedcostgbp, landedcostcalculated,
         linetotal, delivertolocationid, status,
-        tblproducts (sku, productname),
+        tblproducts (sku, productname, reorderqty),
         tbllocations (locationcode)
       `)
       .eq('poid', id)
@@ -124,6 +125,7 @@ export default function PurchaseOrderDetailPage() {
         productid:            r.productid,
         sku:                  r.tblproducts?.sku || '',
         productname:          r.tblproducts?.productname || '',
+        reorderqty:           r.tblproducts?.reorderqty || 0,
         quantityordered:      r.quantityordered,
         quantityreceived:     r.quantityreceived,
         unitcostusd:          r.unitcostusd,
@@ -623,12 +625,19 @@ export default function PurchaseOrderDetailPage() {
                       <td className="pf-productname">{line.productname}</td>
                       <td className="pf-col-right">
                         {canEditLines ? (
-                          <input
-                            className="pf-input pf-input-sm pf-input-num pf-qty-input"
-                            type="number" min="1"
-                            value={line.quantityordered}
-                            onChange={(e) => updateLine(line.polineid, 'quantityordered', parseInt(e.target.value) || 1)}
-                          />
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem' }}>
+                            <input
+                              className="pf-input pf-input-sm pf-input-num pf-qty-input"
+                              type="number" min="1"
+                              value={line.quantityordered}
+                              onChange={(e) => updateLine(line.polineid, 'quantityordered', parseInt(e.target.value) || 1)}
+                            />
+                            {line.reorderqty > 0 && (
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-faint)' }}>
+                                Usual: {line.reorderqty}
+                              </span>
+                            )}
+                          </div>
                         ) : line.quantityordered}
                       </td>
                       <td className="pf-col-right">

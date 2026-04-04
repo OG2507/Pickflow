@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 type StockByProduct = {
@@ -56,6 +56,9 @@ const MOVEMENT_REASONS = [
 
 export default function StockPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const productParam = searchParams.get('product')
+
   const [view, setView] = useState<'product' | 'location'>('product')
   const [byProduct, setByProduct] = useState<StockByProduct[]>([])
   const [byLocation, setByLocation] = useState<StockByLocation[]>([])
@@ -193,6 +196,18 @@ export default function StockPage() {
   useEffect(() => {
     fetchStock()
   }, [fetchStock])
+
+  // Auto-expand product if arriving from product page
+  useEffect(() => {
+    if (productParam && byProduct.length > 0) {
+      const pid = parseInt(productParam)
+      const match = byProduct.find((p) => p.productid === pid)
+      if (match) {
+        setExpandedId(pid)
+        setSearch(match.sku)
+      }
+    }
+  }, [productParam, byProduct])
 
   // ── Stock adjustment ───────────────────────────────────────────
   const openAdjust = (target: AdjustTarget) => {
