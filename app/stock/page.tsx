@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 type StockByProduct = {
@@ -54,6 +55,7 @@ const MOVEMENT_REASONS = [
 ]
 
 export default function StockPage() {
+  const router = useRouter()
   const [view, setView] = useState<'product' | 'location'>('product')
   const [byProduct, setByProduct] = useState<StockByProduct[]>([])
   const [byLocation, setByLocation] = useState<StockByLocation[]>([])
@@ -283,7 +285,14 @@ export default function StockPage() {
             }
           </p>
         </div>
-        <div className="pf-toggle-group">
+        <div className="pf-header-actions">
+          <button
+            className="pf-btn-secondary"
+            onClick={() => router.push('/stock/reorder')}
+          >
+            Reorder
+          </button>
+          <div className="pf-toggle-group">
           <button
             className={`pf-toggle ${view === 'product' ? 'pf-toggle-on' : ''}`}
             onClick={() => { setView('product'); setExpandedId(null) }}
@@ -296,6 +305,7 @@ export default function StockPage() {
           >
             By Location
           </button>
+          </div>
         </div>
       </div>
 
