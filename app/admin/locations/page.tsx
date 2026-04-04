@@ -10,6 +10,7 @@ type Location = {
   locationtype: string | null
   zone: string | null
   isactive: boolean
+  pickpriority: number
 }
 
 const LOCATION_TYPES = ['Picking Bin', 'Overflow', 'Despatch', 'Returns', 'Other']
@@ -20,6 +21,7 @@ const emptyLocation = {
   locationtype: '',
   zone: '',
   isactive: true,
+  pickpriority: '0',
 }
 
 export default function LocationsPage() {
@@ -89,6 +91,7 @@ export default function LocationsPage() {
         locationtype: editForm.locationtype || null,
         zone:         editForm.zone || null,
         isactive:     editForm.isactive,
+        pickpriority: parseInt(String(editForm.pickpriority)) || 0,
       })
       .eq('locationid', editingId)
 
@@ -141,6 +144,7 @@ export default function LocationsPage() {
         locationtype: newForm.locationtype || null,
         zone:         newForm.zone.trim() || null,
         isactive:     newForm.isactive,
+        pickpriority: parseInt(newForm.pickpriority) || 0,
       })
 
     if (error) {
@@ -252,6 +256,21 @@ export default function LocationsPage() {
                 placeholder="e.g. Main Warehouse"
               />
             </div>
+            <div className="pf-field">
+              <label className="pf-label">Pick Priority</label>
+              <input
+                className="pf-input pf-input-num"
+                type="number"
+                min="0"
+                name="pickpriority"
+                value={newForm.pickpriority}
+                onChange={handleNewChange}
+                placeholder="0 = pick first"
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-faint)', marginTop: '0.2rem', display: 'block' }}>
+                0 = picking bin (first), 1 = overflow, 99 = goods in (never picked)
+              </span>
+            </div>
           </div>
           <div className="pf-band-form-actions">
             <button className="pf-btn-secondary" onClick={cancelNew}>Cancel</button>
@@ -276,6 +295,7 @@ export default function LocationsPage() {
                 <th>Name</th>
                 <th>Type</th>
                 <th>Zone</th>
+                <th className="pf-col-center">Priority</th>
                 <th className="pf-col-center">Active</th>
                 <th></th>
               </tr>
@@ -323,6 +343,17 @@ export default function LocationsPage() {
                     </td>
                     <td className="pf-col-center">
                       <input
+                        className="pf-input pf-input-sm pf-input-num"
+                        style={{ width: '60px' }}
+                        type="number"
+                        min="0"
+                        name="pickpriority"
+                        value={editForm.pickpriority ?? 0}
+                        onChange={handleEditChange}
+                      />
+                    </td>
+                    <td className="pf-col-center">
+                      <input
                         type="checkbox"
                         name="isactive"
                         checked={editForm.isactive ?? true}
@@ -345,6 +376,7 @@ export default function LocationsPage() {
                     <td className="pf-productname">{loc.locationname || '—'}</td>
                     <td className="pf-category">{loc.locationtype || '—'}</td>
                     <td className="pf-category">{loc.zone || '—'}</td>
+                    <td className="pf-col-center pf-category">{loc.pickpriority}</td>
                     <td className="pf-col-center">
                       <span className={`pf-dot ${loc.isactive ? 'pf-dot-on' : 'pf-dot-off'}`} />
                     </td>

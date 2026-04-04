@@ -359,6 +359,13 @@ export default function StockPage() {
         .update({ quantityonhand: existing.quantityonhand + qty })
         .eq('stocklevelid', existing.stocklevelid)
     } else {
+      // Get pick priority from location
+      const { data: locData } = await supabase
+        .from('tbllocations')
+        .select('pickpriority')
+        .eq('locationid', destId)
+        .single()
+
       await supabase
         .from('tblstocklevels')
         .insert({
@@ -366,7 +373,7 @@ export default function StockPage() {
           locationid:     destId,
           quantityonhand: qty,
           bagsize:        0,
-          pickpriority:   0,
+          pickpriority:   locData?.pickpriority ?? 0,
         })
     }
 

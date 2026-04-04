@@ -99,7 +99,12 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
                     )}
                   </td>
                   <td className="pf-category">{row.locationtype || '—'}</td>
-                  <td className="pf-col-right">{row.quantityonhand}</td>
+                  <td className="pf-col-right">
+                    {row.quantityonhand === 0
+                      ? <span className="pf-category" style={{ color: 'var(--text-faint)' }}>0</span>
+                      : row.quantityonhand
+                    }
+                  </td>
                   <td className="pf-col-right pf-category">
                     {row.bagsize > 0
                       ? Math.floor(row.quantityonhand / row.bagsize)
@@ -112,7 +117,7 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
 
           <div className="pf-stock-total">
             <span>Total stock</span>
-            <span>{totalStock} units</span>
+            <span>{totalStock} units across {stock.filter(r => r.quantityonhand > 0).length} location{stock.filter(r => r.quantityonhand > 0).length !== 1 ? 's' : ''}</span>
           </div>
         </>
       )}

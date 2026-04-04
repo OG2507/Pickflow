@@ -356,6 +356,13 @@ export default function PurchaseOrderDetailPage() {
         .update({ quantityonhand: existing.quantityonhand + qty })
         .eq('stocklevelid', existing.stocklevelid)
     } else {
+      // Get pick priority from location
+      const { data: locData } = await supabase
+        .from('tbllocations')
+        .select('pickpriority')
+        .eq('locationid', locationId)
+        .single()
+
       await supabase
         .from('tblstocklevels')
         .insert({
@@ -363,7 +370,7 @@ export default function PurchaseOrderDetailPage() {
           locationid:     locationId,
           quantityonhand: qty,
           bagsize:        0,
-          pickpriority:   0,
+          pickpriority:   locData?.pickpriority ?? 0,
         })
     }
 

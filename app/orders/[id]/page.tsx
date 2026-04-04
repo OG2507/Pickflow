@@ -438,6 +438,428 @@ export default function OrderDetailPage() {
     setSaving(false)
   }
 
+  const [confirmingPick, setConfirmingPick] = useState(false)
+  const [pickError, setPickError] = useState<string | null>(null)
+
+  // ── Print Order ────────────────────────────────────────────────
+  const printOrder = async () => {
+    if (!order) return
+
+    // Fetch picking data for each line
+    type PickLine = {
+      sku: string
+      productname: string
+      quantityordered: number
+      productid: number | null
+      pickingbintracked: boolean
+      binlocation: string | null
+      binqty: number
+      overflowlocations: { locationcode: string; locationname: string | null; quantityonhand: number; bagsize: number }[]
+    }
+
+    const pickLines: PickLine[] = []
+
+    for (const line of lines) {
+      if (!line.productid) continue
+
+      // Get product picking info
+      const { data: product } = await supabase
+        .from('tblproducts')
+        .select('pickingbintracked, bagsizedefault')
+        .eq('productid', line.productid)
+        .single()
+
+      const productBagsize = product?.bagsizedefault || 1
+
+      // Get stock levels — fetch ALL including zero qty so bin location is always known
+      const { data: stockLevels } = await supabase
+        .from('tblstocklevels')
+        .select(`stocklevelid, quantityonhand, pickpriority, bagsize, locationid,
+          tbllocations (locationid, locationcode, locationname, locationtype, isactive)`)
+        .eq('productid', line.productid)
+        .order('pickpriority')
+
+      const levels = (stockLevels || []).filter((s: any) => s.tbllocations?.isactive)
+
+      const binLevel = levels.find((s: any) => s.pickpriority === 0)
+      // Overflow only shows locations that actually have stock
+      const overflowLevels = levels.filter((s: any) => s.pickpriority > 0 && s.quantityonhand > 0)
+
+      pickLines.push({
+        sku:               line.sku || '',
+        productname:       line.productname || '',
+        quantityordered:   line.quantityordered,
+        productid:         line.productid,
+        pickingbintracked: product?.pickingbintracked || false,
+        binlocation:       (binLevel as any)?.tbllocations?.locationcode || null,
+        binqty:            binLevel?.quantityonhand || 0,
+        overflowlocations: overflowLevels.map((s: any) => ({
+          locationcode:   s.tbllocations?.locationcode || '',
+          locationname:   s.tbllocations?.locationname || null,
+          quantityonhand: s.quantityonhand,
+          bagsize:        s.bagsize > 0 ? s.bagsize : productBagsize,
+        })),
+      })
+    }
+
+    // Build picking instructions per line
+    const buildPickInstructions = (pl: PickLine): string[] => {
+      const instructions: string[] = []
+      const qty = pl.quantityordered
+
+      if (pl.pickingbintracked && pl.binqty > 0) {
+        // Mode 2a — tracked, bin has stock
+        let remaining = qty
+        const fromBin = Math.min(pl.binqty, remaining)
+        if (fromBin > 0) {
+          instructions.push(`Pick ${fromBin} from bin: ${pl.binlocation}`)
+          remaining -= fromBin
+        }
+
+        for (const ovf of pl.overflowlocations) {
+          if (remaining <= 0) break
+          const bagsize = ovf.bagsize || 1
+          const fullBags = Math.floor(remaining / bagsize)
+          const partial = remaining % bagsize
+
+          if (fullBags > 0) {
+            instructions.push(`Take ${fullBags} full bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize} units) from ${ovf.locationcode}`)
+            remaining -= fullBags * bagsize
+          }
+
+          if (partial > 0 && remaining > 0) {
+            const toOrder = partial
+            const toBin = bagsize - partial
+            instructions.push(`Open 1 bag from ${ovf.locationcode}: take ${toOrder} for order, put ${toBin} into ${pl.binlocation}`)
+            remaining -= toOrder
+          }
+        }
+
+      } else if (pl.pickingbintracked && pl.binqty === 0) {
+        // Mode 2b — tracked, bin is empty — go straight to overflow
+        if (pl.overflowlocations.length === 0) {
+          instructions.push(`⚠ Bin (${pl.binlocation}) is empty and no overflow stock found — check manually`)
+        } else {
+          let remaining = qty
+          for (const ovf of pl.overflowlocations) {
+            if (remaining <= 0) break
+            const bagsize = ovf.bagsize || 1
+            const fullBags = Math.floor(remaining / bagsize)
+            const partial = remaining % bagsize
+
+            if (fullBags > 0) {
+              instructions.push(`Bin (${pl.binlocation}) is empty — take ${fullBags} full bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize} units) from ${ovf.locationcode}`)
+              remaining -= fullBags * bagsize
+            }
+
+            if (partial > 0 && remaining > 0) {
+              const toOrder = partial
+              const toBin = bagsize - partial
+              instructions.push(`Open 1 bag from ${ovf.locationcode}: take ${toOrder} for order, put ${toBin} into bin (${pl.binlocation})`)
+              remaining -= toOrder
+            }
+          }
+        }
+
+      } else {
+        // Mode 1 — bin not tracked, we don't know what's in it
+        if (pl.overflowlocations.length === 0) {
+          instructions.push(`⚠ No stock locations found — check manually`)
+        } else {
+          const bagsize = pl.overflowlocations[0]?.bagsize || 1
+          const ovfLocation = pl.overflowlocations[0]
+          const binRef = pl.binlocation ? ` (${pl.binlocation})` : ''
+
+          instructions.push(`1. Check picking bin${binRef} — take up to ${qty} if available`)
+          instructions.push(`2. If bin doesn't have enough, go to ${ovfLocation.locationcode}: take 1 bag (${bagsize} units)`)
+          instructions.push(`3. Take what you need from the bag, put the remainder into bin${binRef}`)
+          instructions.push(`4. Count what is now in bin${binRef} and update the system`)
+          instructions.push(`   ↳ Once updated, this product will be tracked automatically`)
+
+          if (pl.overflowlocations.length > 1) {
+            instructions.push(`Other overflow locations available:`)
+            for (const ovf of pl.overflowlocations.slice(1)) {
+              instructions.push(`  ${ovf.locationcode}${ovf.locationname ? ' — ' + ovf.locationname : ''}: ${ovf.quantityonhand} units`)
+            }
+          }
+        }
+      }
+
+      return instructions
+    }
+
+    // Sort pick lines by bin location for logical warehouse picking sequence
+    pickLines.sort((a, b) => {
+      const locA = a.binlocation || 'ZZZ'
+      const locB = b.binlocation || 'ZZZ'
+      return locA.localeCompare(locB)
+    })
+
+    // Build single combined document — picking list + packing slip on separate pages
+
+    const deliveryName = [order.shiptoname].filter(Boolean).join('')
+
+    const deliveryAddress = [
+      order.shiptoname,
+      order.shiptoaddress1,
+      order.shiptoaddress2,
+      order.shiptoaddress3,
+      order.shiptotown,
+      order.shiptocounty,
+      order.shiptopostcode,
+      order.shiptocountry,
+    ].filter(Boolean).join('<br>')
+
+    const packingRows = lines.map((line) => `
+      <tr>
+        <td>${line.sku}</td>
+        <td>${line.productname}</td>
+        <td style="text-align:center">${line.quantityordered}</td>
+      </tr>
+    `).join('')
+
+    const companyBlock = order.isblindship ? '' : `
+      <div style="font-size:9pt; margin-bottom:8pt">
+        <strong>Oceanus Group Ltd</strong><br>
+        [Your address here]
+      </div>
+    `
+
+    const combinedHTML = `
+      <!DOCTYPE html><html><head><title>Order ${order.ordernumber}</title>
+      <style>
+        body { font-family: Arial, sans-serif; font-size: 10pt; margin: 20pt; color: #000; }
+        h1 { font-size: 16pt; margin: 0 0 4pt 0; }
+        .doc-header { display: flex; justify-content: space-between; border-bottom: 2pt solid #000; padding-bottom: 8pt; margin-bottom: 12pt; }
+        .meta { font-size: 9pt; line-height: 1.6; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f0f0f0; border: 1pt solid #999; padding: 4pt 6pt; text-align: left; font-size: 8pt; text-transform: uppercase; }
+        td { border: 1pt solid #ccc; padding: 5pt 6pt; font-size: 9pt; vertical-align: top; }
+        tr:nth-child(even) td { background: #fafafa; }
+        .page-break { page-break-after: always; margin-bottom: 20pt; }
+        .thankyou { margin-top: 20pt; padding-top: 12pt; border-top: 1pt solid #ccc; font-size: 9pt; text-align: center; color: #555; }
+      </style></head><body>
+
+      <!-- PICKING LIST -->
+      <div class="doc-header">
+        <div>
+          <h1>Picking List</h1>
+          <div class="meta">
+            <strong>Order:</strong> ${order.ordernumber}<br>
+            <strong>Date:</strong> ${new Date().toLocaleDateString('en-GB')}<br>
+            <strong>Source:</strong> ${order.ordersource}
+          </div>
+        </div>
+        <div class="meta" style="text-align:right">
+          <strong>Ship To:</strong><br>${deliveryName || '—'}
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Bin</th><th>SKU</th><th>Product</th><th>Qty</th><th>Pick Instructions</th></tr></thead>
+        <tbody>${pickLines.map((pl) => {
+          const instructions = buildPickInstructions(pl)
+          return `
+            <tr>
+              <td style="font-weight:bold;white-space:nowrap">${pl.binlocation || '—'}</td>
+              <td>${pl.sku}</td>
+              <td>${pl.productname}</td>
+              <td style="text-align:center"><strong>${pl.quantityordered}</strong></td>
+              <td>${instructions.map((i) => `<div style="margin-bottom:3pt">${i}</div>`).join('')}</td>
+            </tr>
+          `
+        }).join('')}</tbody>
+      </table>
+      ${order.notes ? `<div style="margin-top:12pt;font-size:9pt"><strong>Order Notes:</strong> ${order.notes}</div>` : ''}
+
+      <div class="page-break"></div>
+
+      <!-- PACKING SLIP -->
+      ${companyBlock}
+      <div class="doc-header">
+        <div>
+          <h1>Packing Slip</h1>
+          <div class="meta">
+            <strong>Order:</strong> ${order.ordernumber}<br>
+            <strong>Date:</strong> ${new Date().toLocaleDateString('en-GB')}
+          </div>
+        </div>
+        <div class="meta" style="text-align:right">
+          <strong>Deliver To:</strong><br>${deliveryAddress}
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>SKU</th><th>Product Description</th><th>Qty</th></tr></thead>
+        <tbody>${packingRows}</tbody>
+      </table>
+      ${order.notes ? `<div style="margin-top:12pt;font-size:9pt"><strong>Notes:</strong> ${order.notes}</div>` : ''}
+      <div class="thankyou">
+        Thank you for your order. If you have any questions please don't hesitate to get in touch.
+      </div>
+
+      </body></html>
+    `
+
+    // Open single window with both documents
+    const printWindow = window.open('', '_blank', 'width=900,height=700')
+    if (printWindow) {
+      printWindow.document.write(combinedHTML)
+      printWindow.document.close()
+      printWindow.focus()
+      setTimeout(() => { try { printWindow.print() } catch(e) {} }, 600)
+    }
+
+    // Advance status to Printed
+    await supabase.from('tblorders').update({ status: 'Printed' }).eq('orderid', id)
+    setOrder((prev) => prev ? { ...prev, status: 'Printed' } : prev)
+  }
+
+  // ── Confirm Pick ───────────────────────────────────────────────
+  const confirmPick = async () => {
+    if (!order) return
+    setConfirmingPick(true)
+    setPickError(null)
+
+    for (const line of lines) {
+      if (!line.productid) continue
+
+      const { data: product } = await supabase
+        .from('tblproducts')
+        .select('pickingbintracked, bagsizedefault')
+        .eq('productid', line.productid)
+        .single()
+
+      if (!product?.pickingbintracked) continue // Mode 1 — no automatic movements
+
+      const productBagsize = product?.bagsizedefault || 1
+
+      // Mode 2 — execute stock movements
+      const { data: stockLevels } = await supabase
+        .from('tblstocklevels')
+        .select('stocklevelid, quantityonhand, pickpriority, bagsize, locationid')
+        .eq('productid', line.productid)
+        .gt('quantityonhand', 0)
+        .order('pickpriority')
+
+      if (!stockLevels) continue
+
+      const binLevel = stockLevels.find((s) => s.pickpriority === 0)
+      const overflowLevels = stockLevels.filter((s) => s.pickpriority > 0)
+
+      let remaining = line.quantityordered
+
+      // Deduct from bin first
+      if (binLevel && remaining > 0) {
+        const fromBin = Math.min(binLevel.quantityonhand, remaining)
+        await supabase
+          .from('tblstocklevels')
+          .update({ quantityonhand: binLevel.quantityonhand - fromBin })
+          .eq('stocklevelid', binLevel.stocklevelid)
+
+        await supabase.from('tblstockmovements').insert({
+          movementdate:   new Date().toISOString(),
+          movementtype:   'PICK',
+          productid:      line.productid,
+          fromlocationid: binLevel.locationid,
+          quantity:       fromBin,
+          reference:      order.ordernumber,
+          reason:         'Order pick',
+          createdby:      'system',
+        })
+
+        remaining -= fromBin
+      }
+
+      // Deduct from overflow
+      for (const ovf of overflowLevels) {
+        if (remaining <= 0) break
+        const bagsize = ovf.bagsize > 0 ? ovf.bagsize : productBagsize
+        const fullBags = Math.floor(remaining / bagsize)
+        const partial = remaining % bagsize
+
+        if (fullBags > 0) {
+          const deduct = fullBags * bagsize
+          await supabase
+            .from('tblstocklevels')
+            .update({ quantityonhand: ovf.quantityonhand - deduct })
+            .eq('stocklevelid', ovf.stocklevelid)
+
+          await supabase.from('tblstockmovements').insert({
+            movementdate:   new Date().toISOString(),
+            movementtype:   'PICK',
+            productid:      line.productid,
+            fromlocationid: ovf.locationid,
+            quantity:       deduct,
+            reference:      order.ordernumber,
+            reason:         'Order pick — full bags',
+            createdby:      'system',
+          })
+
+          remaining -= deduct
+        }
+
+        if (partial > 0 && remaining > 0) {
+          const toBin = bagsize - partial
+          // Deduct full bag from overflow
+          await supabase
+            .from('tblstocklevels')
+            .update({ quantityonhand: ovf.quantityonhand - bagsize })
+            .eq('stocklevelid', ovf.stocklevelid)
+
+          await supabase.from('tblstockmovements').insert({
+            movementdate:   new Date().toISOString(),
+            movementtype:   'PICK',
+            productid:      line.productid,
+            fromlocationid: ovf.locationid,
+            quantity:       partial,
+            reference:      order.ordernumber,
+            reason:         'Order pick — partial bag',
+            createdby:      'system',
+          })
+
+          // Move remainder to bin if bin level exists
+          if (binLevel) {
+            const { data: currentBin } = await supabase
+              .from('tblstocklevels')
+              .select('quantityonhand')
+              .eq('stocklevelid', binLevel.stocklevelid)
+              .single()
+
+            await supabase
+              .from('tblstocklevels')
+              .update({ quantityonhand: (currentBin?.quantityonhand || 0) + toBin })
+              .eq('stocklevelid', binLevel.stocklevelid)
+
+            await supabase.from('tblstockmovements').insert({
+              movementdate:   new Date().toISOString(),
+              movementtype:   'TRANSFER',
+              productid:      line.productid,
+              fromlocationid: ovf.locationid,
+              tolocationid:   binLevel.locationid,
+              quantity:       toBin,
+              reference:      order.ordernumber,
+              reason:         'Partial bag remainder to bin',
+              createdby:      'system',
+            })
+          }
+
+          remaining -= partial
+        }
+      }
+
+      // Update order line quantity picked
+      await supabase
+        .from('tblorderlines')
+        .update({ quantitypicked: line.quantityordered, status: 'Picked' })
+        .eq('orderlineid', line.orderlineid)
+    }
+
+    // Advance to Dispatched
+    const updates = { status: 'Dispatched', despatchdate: new Date().toISOString() }
+    await supabase.from('tblorders').update(updates).eq('orderid', id)
+    setOrder((prev) => prev ? { ...prev, ...updates } : prev)
+    setConfirmingPick(false)
+  }
+
   // ── Advance status ─────────────────────────────────────────────
   const advanceStatus = async () => {
     if (!order) return
@@ -524,9 +946,20 @@ export default function OrderDetailPage() {
             </button>
           )}
 
+          {/* Confirm Pick — appears when status is Picking */}
+          {order.status === 'Picking' && !isCancelled && (
+            <button
+              className="pf-btn-primary"
+              onClick={confirmPick}
+              disabled={confirmingPick}
+            >
+              {confirmingPick ? 'Processing…' : '✓ Confirm Pick'}
+            </button>
+          )}
+
           {/* Advance status — Print Order when next is Printed, otherwise normal advance */}
-          {nextStatus && !isCancelled && (
-            <button className="pf-btn-primary" onClick={advanceStatus}>
+          {nextStatus && !isCancelled && order.status !== 'Picking' && (
+            <button className="pf-btn-primary" onClick={nextStatus === 'Printed' ? printOrder : advanceStatus}>
               {nextStatus === 'Printed' ? '🖨 Print Order' : `→ ${nextStatus}`}
             </button>
           )}
@@ -568,9 +1001,13 @@ export default function OrderDetailPage() {
       {/* Print placeholder note */}
       {order.status === 'New' && !isCancelled && (
         <div className="pf-print-note">
-          🖨 Clicking <strong>Print Order</strong> will advance the status to Printed.
-          Picking list and packing slip generation will be added in a future update.
+          🖨 Clicking <strong>Print Order</strong> will generate the picking list and packing slip, then advance the status to Printed.
         </div>
+      )}
+
+      {/* Pick error */}
+      {pickError && (
+        <div className="pf-shipping-invalid-warning">{pickError}</div>
       )}
 
       {/* Shipping invalidated warning */}
