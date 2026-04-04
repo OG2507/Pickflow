@@ -1941,3 +1941,96 @@ body {
   padding-left: 2rem;
   font-size: 0.875rem;
 }
+
+
+/* ================================================================
+   Print Styles — Putaway List
+   Append this to the bottom of app/globals.css
+================================================================ */
+
+/* Hide print content on screen */
+.pf-print-only {
+  display: none;
+}
+
+@media print {
+  /* Hide everything on screen except the print content */
+  body > * {
+    display: none !important;
+  }
+
+  .pf-print-only {
+    display: block !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    font-family: Arial, sans-serif;
+    font-size: 11pt;
+    color: #000;
+  }
+
+  .pf-putaway-header {
+    margin-bottom: 16pt;
+    border-bottom: 2pt solid #000;
+    padding-bottom: 8pt;
+  }
+
+  .pf-putaway-header h1 {
+    font-size: 18pt;
+    font-weight: bold;
+    margin: 0 0 6pt 0;
+  }
+
+  .pf-putaway-meta {
+    display: flex;
+    gap: 24pt;
+    font-size: 10pt;
+  }
+
+  .pf-putaway-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 12pt;
+  }
+
+  .pf-putaway-table th {
+    background: #f0f0f0;
+    border: 1pt solid #999;
+    padding: 5pt 7pt;
+    text-align: left;
+    font-size: 9pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .pf-putaway-table td {
+    border: 1pt solid #ccc;
+    padding: 6pt 7pt;
+    font-size: 10pt;
+    vertical-align: middle;
+  }
+
+  .pf-putaway-table tr:nth-child(even) td {
+    background: #fafafa;
+  }
+
+  /* Move To and Done columns — wider for writing space */
+  .pf-putaway-table th:nth-child(5),
+  .pf-putaway-table td:nth-child(5) {
+    min-width: 80pt;
+  }
+
+  .pf-putaway-table th:nth-child(6),
+  .pf-putaway-table td:nth-child(6) {
+    width: 36pt;
+    text-align: center;
+  }
+
+  .pf-putaway-footer {
+    font-size: 9pt;
+    color: #666;
+    margin-top: 8pt;
+  }
+}

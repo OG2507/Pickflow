@@ -899,7 +899,7 @@ export default function PurchaseOrderDetailPage() {
         </div>
       )}
 
-      {/* Putaway List Modal */}
+      {/* Putaway List Modal — screen view */}
       {showPutaway && (
         <div className="pf-modal-overlay" onClick={() => setShowPutaway(false)}>
           <div className="pf-modal pf-modal-wide" onClick={(e) => e.stopPropagation()}>
@@ -928,7 +928,7 @@ export default function PurchaseOrderDetailPage() {
                       <td className="pf-productname">{line.productname}</td>
                       <td className="pf-col-right">{line.quantityreceived}</td>
                       <td className="pf-sku">{line.delivertolocationcode || '—'}</td>
-                      <td className="pf-category pf-text-faint">________________</td>
+                      <td></td>
                     </tr>
                   ))}
                 </tbody>
@@ -936,7 +936,72 @@ export default function PurchaseOrderDetailPage() {
             </div>
             <div className="pf-modal-footer">
               <button className="pf-btn-secondary" onClick={() => setShowPutaway(false)}>Close</button>
-              <button className="pf-btn-primary" onClick={() => window.print()}>Print</button>
+              <button
+                className="pf-btn-primary"
+                onClick={() => {
+                  const rows = receivedLines.map((line) => `
+                    <tr>
+                      <td>${line.sku}</td>
+                      <td>${line.productname}</td>
+                      <td style="text-align:center">${line.quantityreceived}</td>
+                      <td style="text-align:center">${line.delivertolocationcode || '—'}</td>
+                      <td></td>
+                      <td></td>
+                    </tr>
+                  `).join('')
+
+                  const html = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                      <title>Putaway List — ${po.ponumber}</title>
+                      <style>
+                        body { font-family: Arial, sans-serif; font-size: 11pt; color: #000; margin: 20pt; }
+                        h1 { font-size: 18pt; margin: 0 0 6pt 0; }
+                        .meta { display: flex; gap: 24pt; font-size: 10pt; margin-bottom: 16pt; padding-bottom: 8pt; border-bottom: 2pt solid #000; }
+                        table { width: 100%; border-collapse: collapse; margin-bottom: 12pt; }
+                        th { background: #f0f0f0; border: 1pt solid #999; padding: 5pt 7pt; text-align: left; font-size: 9pt; font-weight: bold; text-transform: uppercase; }
+                        td { border: 1pt solid #ccc; padding: 6pt 7pt; font-size: 10pt; }
+                        tr:nth-child(even) td { background: #fafafa; }
+                        .footer { font-size: 9pt; color: #666; margin-top: 8pt; }
+                      </style>
+                    </head>
+                    <body>
+                      <h1>Putaway List</h1>
+                      <div class="meta">
+                        <span><strong>PO:</strong> ${po.ponumber}</span>
+                        <span><strong>Supplier:</strong> ${po.suppliername}</span>
+                        <span><strong>Date:</strong> ${new Date().toLocaleDateString('en-GB')}</span>
+                      </div>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>SKU</th>
+                            <th>Product Description</th>
+                            <th>Qty Received</th>
+                            <th>Goods In Location</th>
+                            <th>Move To</th>
+                            <th>Done ✓</th>
+                          </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                      </table>
+                      <div class="footer">Move stock from goods-in locations to shelf locations and tick when done.</div>
+                    </body>
+                    </html>
+                  `
+
+                  const win = window.open('', '_blank', 'width=900,height=700')
+                  if (win) {
+                    win.document.write(html)
+                    win.document.close()
+                    win.focus()
+                    setTimeout(() => { win.print(); win.close() }, 500)
+                  }
+                }}
+              >
+                Print
+              </button>
             </div>
           </div>
         </div>
