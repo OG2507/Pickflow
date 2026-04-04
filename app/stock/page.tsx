@@ -75,6 +75,14 @@ export default function StockPage() {
   const [adjustSaving, setAdjustSaving] = useState(false)
   const [adjustError, setAdjustError] = useState<string | null>(null)
 
+  // Transfer modal
+  const [transferTarget, setTransferTarget] = useState<AdjustTarget | null>(null)
+  const [transferQty, setTransferQty] = useState('')
+  const [transferDestId, setTransferDestId] = useState('')
+  const [allLocations, setAllLocations] = useState<{ locationid: number; locationcode: string; locationname: string | null }[]>([])
+  const [transferSaving, setTransferSaving] = useState(false)
+  const [transferError, setTransferError] = useState<string | null>(null)
+
   const fetchStock = useCallback(async () => {
     setLoading(true)
 
@@ -284,6 +292,105 @@ export default function StockPage() {
     setAdjustSaving(false)
   }
 
+  // ── Stock transfer ─────────────────────────────────────────────
+  const openTransfer = async (target: AdjustTarget) => {
+    setTransferTarget(target)
+    setTransferQty('')
+    setTransferDestId('')
+    setTransferError(null)
+
+    // Fetch all active locations except the source
+    const { data } = await supabase
+      .from('tbllocations')
+      .select('locationid, locationcode, locationname')
+      .eq('isactive', true)
+      .neq('locationid', target.locationid)
+      .order('locationcode')
+
+    setAllLocations(data || [])
+  }
+
+  const closeTransfer = () => {
+    setTransferTarget(null)
+    setTransferQty('')
+    setTransferDestId('')
+    setTransferError(null)
+  }
+
+  const saveTransfer = async () => {
+    if (!transferTarget) return
+    const qty = parseInt(transferQty)
+    if (isNaN(qty) || qty <= 0) {
+      setTransferError('Enter a valid quantity')
+      return
+    }
+    if (qty > transferTarget.currentqty) {
+      setTransferError(`Cannot transfer more than current stock (${transferTarget.currentqty})`)
+      return
+    }
+    if (!transferDestId) {
+      setTransferError('Select a destination location')
+      return
+    }
+
+    setTransferSaving(true)
+    setTransferError(null)
+
+    const destId = parseInt(transferDestId)
+
+    // Decrease source
+    await supabase
+      .from('tblstocklevels')
+      .update({ quantityonhand: transferTarget.currentqty - qty })
+      .eq('productid', transferTarget.productid)
+      .eq('locationid', transferTarget.locationid)
+
+    // Increase or create destination
+    const { data: existing } = await supabase
+      .from('tblstocklevels')
+      .select('stocklevelid, quantityonhand')
+      .eq('productid', transferTarget.productid)
+      .eq('locationid', destId)
+      .maybeSingle()
+
+    if (existing) {
+      await supabase
+        .from('tblstocklevels')
+        .update({ quantityonhand: existing.quantityonhand + qty })
+        .eq('stocklevelid', existing.stocklevelid)
+    } else {
+      await supabase
+        .from('tblstocklevels')
+        .insert({
+          productid:      transferTarget.productid,
+          locationid:     destId,
+          quantityonhand: qty,
+          bagsize:        0,
+          pickpriority:   0,
+        })
+    }
+
+    // Log the movement
+    const destLoc = allLocations.find((l) => l.locationid === destId)
+    await supabase
+      .from('tblstockmovements')
+      .insert({
+        movementdate:   new Date().toISOString(),
+        movementtype:   'TRANSFER',
+        productid:      transferTarget.productid,
+        fromlocationid: transferTarget.locationid,
+        tolocationid:   destId,
+        quantity:       qty,
+        reference:      `XFER-${transferTarget.locationcode}-${destLoc?.locationcode}`,
+        reason:         'Stock transfer',
+        createdby:      'system',
+      })
+
+    setTransferSaving(false)
+    closeTransfer()
+    await fetchStock()
+  }
+
   const toggleExpand = (id: number) => {
     setExpandedId(expandedId === id ? null : id)
   }
@@ -423,22 +530,40 @@ export default function StockPage() {
                                       <td className="pf-col-right">{loc.quantityonhand}</td>
                                       <td className="pf-col-right pf-category">{loc.pickpriority}</td>
                                       <td className="pf-col-right">
-                                        <button
-                                          className="pf-btn-edit"
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            openAdjust({
-                                              productid:    p.productid,
-                                              locationid:   loc.locationid,
-                                              sku:          p.sku,
-                                              productname:  p.productname,
-                                              locationcode: loc.locationcode,
-                                              currentqty:   loc.quantityonhand,
-                                            })
-                                          }}
-                                        >
-                                          Adjust
-                                        </button>
+                                        <div className="pf-row-actions">
+                                          <button
+                                            className="pf-btn-edit"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              openAdjust({
+                                                productid:    p.productid,
+                                                locationid:   loc.locationid,
+                                                sku:          p.sku,
+                                                productname:  p.productname,
+                                                locationcode: loc.locationcode,
+                                                currentqty:   loc.quantityonhand,
+                                              })
+                                            }}
+                                          >
+                                            Adjust
+                                          </button>
+                                          <button
+                                            className="pf-btn-activate"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              openTransfer({
+                                                productid:    p.productid,
+                                                locationid:   loc.locationid,
+                                                sku:          p.sku,
+                                                productname:  p.productname,
+                                                locationcode: loc.locationcode,
+                                                currentqty:   loc.quantityonhand,
+                                              })
+                                            }}
+                                          >
+                                            Transfer
+                                          </button>
+                                        </div>
                                       </td>
                                     </tr>
                                   ))}
@@ -521,22 +646,40 @@ export default function StockPage() {
                                       <td className="pf-productname">{p.productname}</td>
                                       <td className="pf-col-right">{p.quantityonhand}</td>
                                       <td className="pf-col-right">
-                                        <button
-                                          className="pf-btn-edit"
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            openAdjust({
-                                              productid:    p.productid,
-                                              locationid:   loc.locationid,
-                                              sku:          p.sku,
-                                              productname:  p.productname,
-                                              locationcode: loc.locationcode,
-                                              currentqty:   p.quantityonhand,
-                                            })
-                                          }}
-                                        >
-                                          Adjust
-                                        </button>
+                                        <div className="pf-row-actions">
+                                          <button
+                                            className="pf-btn-edit"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              openAdjust({
+                                                productid:    p.productid,
+                                                locationid:   loc.locationid,
+                                                sku:          p.sku,
+                                                productname:  p.productname,
+                                                locationcode: loc.locationcode,
+                                                currentqty:   p.quantityonhand,
+                                              })
+                                            }}
+                                          >
+                                            Adjust
+                                          </button>
+                                          <button
+                                            className="pf-btn-activate"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              openTransfer({
+                                                productid:    p.productid,
+                                                locationid:   loc.locationid,
+                                                sku:          p.sku,
+                                                productname:  p.productname,
+                                                locationcode: loc.locationcode,
+                                                currentqty:   p.quantityonhand,
+                                              })
+                                            }}
+                                          >
+                                            Transfer
+                                          </button>
+                                        </div>
                                       </td>
                                     </tr>
                                   ))}
@@ -633,6 +776,87 @@ export default function StockPage() {
                 disabled={adjustSaving}
               >
                 {adjustSaving ? 'Saving…' : 'Save Adjustment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer Modal */}
+      {transferTarget && (
+        <div className="pf-modal-overlay" onClick={closeTransfer}>
+          <div className="pf-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="pf-modal-header">
+              <h2 className="pf-modal-title">Transfer Stock</h2>
+              <button className="pf-modal-close" onClick={closeTransfer}>✕</button>
+            </div>
+
+            <div className="pf-modal-body">
+              <div className="pf-modal-info">
+                <div className="pf-modal-info-row">
+                  <span>Product</span>
+                  <span>{transferTarget.sku} — {transferTarget.productname}</span>
+                </div>
+                <div className="pf-modal-info-row">
+                  <span>From</span>
+                  <span>{transferTarget.locationcode}</span>
+                </div>
+                <div className="pf-modal-info-row">
+                  <span>Available</span>
+                  <span className="pf-modal-current-qty">{transferTarget.currentqty}</span>
+                </div>
+              </div>
+
+              <div className="pf-field">
+                <label className="pf-label">Destination Location <span className="pf-required">*</span></label>
+                <select
+                  className="pf-input"
+                  value={transferDestId}
+                  onChange={(e) => setTransferDestId(e.target.value)}
+                >
+                  <option value="">— Select destination —</option>
+                  {allLocations.map((loc) => (
+                    <option key={loc.locationid} value={loc.locationid}>
+                      {loc.locationcode}{loc.locationname ? ` — ${loc.locationname}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="pf-field">
+                <label className="pf-label">Quantity to Transfer <span className="pf-required">*</span></label>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                  <input
+                    className="pf-input pf-input-num pf-input-lg"
+                    type="number"
+                    min="1"
+                    max={transferTarget.currentqty}
+                    value={transferQty}
+                    onChange={(e) => setTransferQty(e.target.value)}
+                    autoFocus
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    className="pf-btn-secondary"
+                    style={{ whiteSpace: 'nowrap', marginTop: '0.1rem' }}
+                    onClick={() => setTransferQty(String(transferTarget.currentqty))}
+                  >
+                    Move All
+                  </button>
+                </div>
+              </div>
+
+              {transferError && <div className="pf-alert-error">{transferError}</div>}
+            </div>
+
+            <div className="pf-modal-footer">
+              <button className="pf-btn-secondary" onClick={closeTransfer}>Cancel</button>
+              <button
+                className="pf-btn-primary"
+                onClick={saveTransfer}
+                disabled={transferSaving}
+              >
+                {transferSaving ? 'Transferring…' : 'Confirm Transfer'}
               </button>
             </div>
           </div>
