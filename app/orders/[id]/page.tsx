@@ -459,37 +459,57 @@ export default function OrderDetailPage() {
 
     const pickLines: PickLine[] = []
 
-    for (const line of lines) {
-      if (!line.productid) continue
-
-      // Get product picking info
+    // Helper to build pick lines for a single product
+    const buildPickLinesForProduct = async (
+      productid: number,
+      sku: string,
+      productname: string,
+      quantityordered: number
+    ) => {
       const { data: product } = await supabase
         .from('tblproducts')
-        .select('pickingbintracked, bagsizedefault')
-        .eq('productid', line.productid)
+        .select('pickingbintracked, bagsizedefault, isbundle')
+        .eq('productid', productid)
         .single()
+
+      // If bundle — expand into components instead
+      if (product?.isbundle) {
+        const { data: components } = await supabase
+          .from('tblproductcomponents')
+          .select(`quantity, tblproducts!childproductid (productid, sku, productname)`)
+          .eq('parentproductid', productid)
+
+        for (const comp of components || []) {
+          const child = (comp as any).tblproducts
+          if (!child) continue
+          await buildPickLinesForProduct(
+            child.productid,
+            child.sku,
+            `${child.productname} [part of ${sku}]`,
+            quantityordered * comp.quantity
+          )
+        }
+        return
+      }
 
       const productBagsize = product?.bagsizedefault || 1
 
-      // Get stock levels — fetch ALL including zero qty so bin location is always known
       const { data: stockLevels } = await supabase
         .from('tblstocklevels')
         .select(`stocklevelid, quantityonhand, pickpriority, bagsize, locationid,
           tbllocations (locationid, locationcode, locationname, locationtype, isactive)`)
-        .eq('productid', line.productid)
+        .eq('productid', productid)
         .order('pickpriority')
 
       const levels = (stockLevels || []).filter((s: any) => s.tbllocations?.isactive)
-
       const binLevel = levels.find((s: any) => s.pickpriority === 0)
-      // Overflow only shows locations that actually have stock
       const overflowLevels = levels.filter((s: any) => s.pickpriority > 0 && s.quantityonhand > 0)
 
       pickLines.push({
-        sku:               line.sku || '',
-        productname:       line.productname || '',
-        quantityordered:   line.quantityordered,
-        productid:         line.productid,
+        sku,
+        productname,
+        quantityordered,
+        productid,
         pickingbintracked: product?.pickingbintracked || false,
         binlocation:       (binLevel as any)?.tbllocations?.locationcode || null,
         binqty:            binLevel?.quantityonhand || 0,
@@ -500,6 +520,16 @@ export default function OrderDetailPage() {
           bagsize:        s.bagsize > 0 ? s.bagsize : productBagsize,
         })),
       })
+    }
+
+    for (const line of lines) {
+      if (!line.productid) continue
+      await buildPickLinesForProduct(
+        line.productid,
+        line.sku || '',
+        line.productname || '',
+        line.quantityordered
+      )
     }
 
     // Build picking instructions per line
@@ -719,57 +749,60 @@ export default function OrderDetailPage() {
     setConfirmingPick(true)
     setPickError(null)
 
-    for (const line of lines) {
-      if (!line.productid) continue
-
+    // Helper to execute stock movements for a single product
+    const executePickMovements = async (
+      productid: number,
+      quantityordered: number,
+      ordernumber: string
+    ) => {
       const { data: product } = await supabase
         .from('tblproducts')
-        .select('pickingbintracked, bagsizedefault')
-        .eq('productid', line.productid)
+        .select('pickingbintracked, bagsizedefault, isbundle')
+        .eq('productid', productid)
         .single()
 
-      if (!product?.pickingbintracked) continue // Mode 1 — no automatic movements
+      // If bundle — execute movements for each component
+      if (product?.isbundle) {
+        const { data: components } = await supabase
+          .from('tblproductcomponents')
+          .select('quantity, childproductid')
+          .eq('parentproductid', productid)
+
+        for (const comp of components || []) {
+          await executePickMovements(comp.childproductid, quantityordered * comp.quantity, ordernumber)
+        }
+        return
+      }
+
+      if (!product?.pickingbintracked) return // Mode 1 — no automatic movements
 
       const productBagsize = product?.bagsizedefault || 1
 
-      // Mode 2 — execute stock movements
       const { data: stockLevels } = await supabase
         .from('tblstocklevels')
         .select('stocklevelid, quantityonhand, pickpriority, bagsize, locationid')
-        .eq('productid', line.productid)
+        .eq('productid', productid)
         .gt('quantityonhand', 0)
         .order('pickpriority')
 
-      if (!stockLevels) continue
+      if (!stockLevels) return
 
       const binLevel = stockLevels.find((s) => s.pickpriority === 0)
       const overflowLevels = stockLevels.filter((s) => s.pickpriority > 0)
 
-      let remaining = line.quantityordered
+      let remaining = quantityordered
 
-      // Deduct from bin first
       if (binLevel && remaining > 0) {
         const fromBin = Math.min(binLevel.quantityonhand, remaining)
-        await supabase
-          .from('tblstocklevels')
-          .update({ quantityonhand: binLevel.quantityonhand - fromBin })
-          .eq('stocklevelid', binLevel.stocklevelid)
-
+        await supabase.from('tblstocklevels').update({ quantityonhand: binLevel.quantityonhand - fromBin }).eq('stocklevelid', binLevel.stocklevelid)
         await supabase.from('tblstockmovements').insert({
-          movementdate:   new Date().toISOString(),
-          movementtype:   'PICK',
-          productid:      line.productid,
-          fromlocationid: binLevel.locationid,
-          quantity:       fromBin,
-          reference:      order.ordernumber,
-          reason:         'Order pick',
-          createdby:      'system',
+          movementdate: new Date().toISOString(), movementtype: 'PICK',
+          productid, fromlocationid: binLevel.locationid,
+          quantity: fromBin, reference: ordernumber, reason: 'Order pick', createdby: 'system',
         })
-
         remaining -= fromBin
       }
 
-      // Deduct from overflow
       for (const ovf of overflowLevels) {
         if (remaining <= 0) break
         const bagsize = ovf.bagsize > 0 ? ovf.bagsize : productBagsize
@@ -778,75 +811,45 @@ export default function OrderDetailPage() {
 
         if (fullBags > 0) {
           const deduct = fullBags * bagsize
-          await supabase
-            .from('tblstocklevels')
-            .update({ quantityonhand: ovf.quantityonhand - deduct })
-            .eq('stocklevelid', ovf.stocklevelid)
-
+          await supabase.from('tblstocklevels').update({ quantityonhand: ovf.quantityonhand - deduct }).eq('stocklevelid', ovf.stocklevelid)
           await supabase.from('tblstockmovements').insert({
-            movementdate:   new Date().toISOString(),
-            movementtype:   'PICK',
-            productid:      line.productid,
-            fromlocationid: ovf.locationid,
-            quantity:       deduct,
-            reference:      order.ordernumber,
-            reason:         'Order pick — full bags',
-            createdby:      'system',
+            movementdate: new Date().toISOString(), movementtype: 'PICK',
+            productid, fromlocationid: ovf.locationid,
+            quantity: deduct, reference: ordernumber, reason: 'Order pick — full bags', createdby: 'system',
           })
-
           remaining -= deduct
         }
 
         if (partial > 0 && remaining > 0) {
           const toBin = bagsize - partial
-          // Deduct full bag from overflow
-          await supabase
-            .from('tblstocklevels')
-            .update({ quantityonhand: ovf.quantityonhand - bagsize })
-            .eq('stocklevelid', ovf.stocklevelid)
-
+          await supabase.from('tblstocklevels').update({ quantityonhand: ovf.quantityonhand - bagsize }).eq('stocklevelid', ovf.stocklevelid)
           await supabase.from('tblstockmovements').insert({
-            movementdate:   new Date().toISOString(),
-            movementtype:   'PICK',
-            productid:      line.productid,
-            fromlocationid: ovf.locationid,
-            quantity:       partial,
-            reference:      order.ordernumber,
-            reason:         'Order pick — partial bag',
-            createdby:      'system',
+            movementdate: new Date().toISOString(), movementtype: 'PICK',
+            productid, fromlocationid: ovf.locationid,
+            quantity: partial, reference: ordernumber, reason: 'Order pick — partial bag', createdby: 'system',
           })
 
-          // Move remainder to bin if bin level exists
           if (binLevel) {
-            const { data: currentBin } = await supabase
-              .from('tblstocklevels')
-              .select('quantityonhand')
-              .eq('stocklevelid', binLevel.stocklevelid)
-              .single()
-
-            await supabase
-              .from('tblstocklevels')
-              .update({ quantityonhand: (currentBin?.quantityonhand || 0) + toBin })
-              .eq('stocklevelid', binLevel.stocklevelid)
-
+            const { data: currentBin } = await supabase.from('tblstocklevels').select('quantityonhand').eq('stocklevelid', binLevel.stocklevelid).single()
+            await supabase.from('tblstocklevels').update({ quantityonhand: (currentBin?.quantityonhand || 0) + toBin }).eq('stocklevelid', binLevel.stocklevelid)
             await supabase.from('tblstockmovements').insert({
-              movementdate:   new Date().toISOString(),
-              movementtype:   'TRANSFER',
-              productid:      line.productid,
-              fromlocationid: ovf.locationid,
-              tolocationid:   binLevel.locationid,
-              quantity:       toBin,
-              reference:      order.ordernumber,
-              reason:         'Partial bag remainder to bin',
-              createdby:      'system',
+              movementdate: new Date().toISOString(), movementtype: 'TRANSFER',
+              productid, fromlocationid: ovf.locationid, tolocationid: binLevel.locationid,
+              quantity: toBin, reference: ordernumber, reason: 'Partial bag remainder to bin', createdby: 'system',
             })
           }
-
           remaining -= partial
         }
       }
+    }
 
-      // Update order line quantity picked
+    for (const line of lines) {
+      if (!line.productid) continue
+      await executePickMovements(line.productid, line.quantityordered, order.ordernumber)
+    }
+
+    // Update all order lines as picked
+    for (const line of lines) {
       await supabase
         .from('tblorderlines')
         .update({ quantitypicked: line.quantityordered, status: 'Picked' })

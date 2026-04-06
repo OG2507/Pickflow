@@ -7,6 +7,7 @@ import { useCategories } from '@/lib/useCategories'
 import { usePriceBands } from '@/lib/usePriceBands'
 import ProductStockPanel from '@/components/ProductStockPanel'
 import ProductSuppliersPanel from '@/components/ProductSuppliersPanel'
+import ProductComponentsPanel from '@/components/ProductComponentsPanel'
 import type { Product, PricingCode } from '@/lib/types'
 
 const VAT_OPTIONS = ['Standard', 'Zero', 'Exempt']
@@ -63,7 +64,7 @@ export default function ProductDetailPage() {
 
     if (name === 'category') {
       setForm((prev) => ({ ...prev, category: value, subcategory: null }))
-    } else if (name === 'pricingcodeid') {
+    } else if (name === 'pricingcode') {
       setForm((prev) => ({ ...prev, pricingcodeid: value ? Number(value) : null }))
     } else {
       setForm((prev) => ({
@@ -344,10 +345,24 @@ export default function ProductDetailPage() {
                 </span>
               </label>
               <label className="pf-checkbox-row">
+                <input type="checkbox" name="isdiscontinued" checked={form.isdiscontinued ?? false} onChange={handleChange} />
+                <span>
+                  <strong>Discontinued</strong>
+                  <small>Excluded from reorder suggestions</small>
+                </span>
+              </label>
+              <label className="pf-checkbox-row">
                 <input type="checkbox" name="isdropship" checked={form.isdropship ?? false} onChange={handleChange} />
                 <span>
                   <strong>Dropship</strong>
                   <small>Fulfilled directly by supplier</small>
+                </span>
+              </label>
+              <label className="pf-checkbox-row">
+                <input type="checkbox" name="isbundle" checked={form.isbundle ?? false} onChange={handleChange} />
+                <span>
+                  <strong>Bundle</strong>
+                  <small>Assembled from component SKUs on picking</small>
                 </span>
               </label>
               <label className="pf-checkbox-row">
@@ -360,11 +375,14 @@ export default function ProductDetailPage() {
             </div>
           </div>
 
-          {/* Stock levels panel */}
-          {product && <ProductStockPanel productid={product.productid} />}
+          {/* Stock levels panel — not shown for bundles */}
+          {product && !product.isbundle && <ProductStockPanel productid={product.productid} />}
 
-          {/* Supplier links panel */}
-          {product && <ProductSuppliersPanel productid={product.productid} />}
+          {/* Components panel — only shown for bundles */}
+          {product?.isbundle && <ProductComponentsPanel productid={product.productid} />}
+
+          {/* Supplier links panel — not shown for bundles */}
+          {product && !product.isbundle && <ProductSuppliersPanel productid={product.productid} />}
 
           <div className="pf-card pf-card-meta">
             <h2 className="pf-card-title">Record Info</h2>

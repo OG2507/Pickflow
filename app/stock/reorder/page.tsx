@@ -46,6 +46,8 @@ export default function ReorderPage() {
       .from('tblproducts')
       .select('productid, sku, productname, category, reorderlevel, reorderqty, isactive')
       .eq('isactive', true)
+      .eq('isdiscontinued', false)
+      .eq('isbundle', false)
       .gt('reorderlevel', 0)
       .order('sku')
 

@@ -95,7 +95,7 @@ export default function StockPage() {
         pickpriority,
         productid,
         locationid,
-        tblproducts (productid, sku, productname, category, reorderlevel, isactive),
+        tblproducts (productid, sku, productname, category, reorderlevel, isactive, isbundle),
         tbllocations (locationid, locationcode, locationname, locationtype, zone, isactive)
       `)
       .order('productid')
@@ -107,7 +107,7 @@ export default function StockPage() {
     }
 
     const rows = (data || []).filter(
-      (r: any) => r.tblproducts?.isactive && r.tbllocations?.isactive && r.quantityonhand > 0
+      (r: any) => r.tblproducts?.isactive && !r.tblproducts?.isbundle && r.tbllocations?.isactive && r.quantityonhand > 0
     )
 
     // Build by-product view

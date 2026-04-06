@@ -62,35 +62,57 @@ async function buildOrderDocuments(orderid: number): Promise<string> {
 
   const pickLines: PickLine[] = []
 
-  for (const line of lines) {
-    if (!line.productid) continue
+  const buildPickLinesForProduct = async (
+    productid: number,
+    sku: string,
+    productname: string,
+    quantityordered: number
+  ) => {
     const { data: product } = await supabase
-      .from('tblproducts').select('pickingbintracked, bagsizedefault')
-      .eq('productid', line.productid).single()
+      .from('tblproducts')
+      .select('pickingbintracked, bagsizedefault, isbundle')
+      .eq('productid', productid)
+      .single()
+
+    if (product?.isbundle) {
+      const { data: components } = await supabase
+        .from('tblproductcomponents')
+        .select(`quantity, tblproducts!childproductid (productid, sku, productname)`)
+        .eq('parentproductid', productid)
+      for (const comp of components || []) {
+        const child = (comp as any).tblproducts
+        if (!child) continue
+        await buildPickLinesForProduct(child.productid, child.sku, `${child.productname} [part of ${sku}]`, quantityordered * comp.quantity)
+      }
+      return
+    }
+
     const productBagsize = product?.bagsizedefault || 1
     const { data: stockLevels } = await supabase
       .from('tblstocklevels')
       .select(`stocklevelid, quantityonhand, pickpriority, bagsize, locationid,
         tbllocations (locationid, locationcode, locationname, locationtype, isactive)`)
-      .eq('productid', line.productid).order('pickpriority')
+      .eq('productid', productid).order('pickpriority')
     const levels = (stockLevels || []).filter((s: any) => s.tbllocations?.isactive)
     const binLevel = levels.find((s: any) => s.pickpriority === 0)
     const overflowLevels = levels.filter((s: any) => s.pickpriority > 0 && s.quantityonhand > 0)
     pickLines.push({
-      sku:               line.sku || '',
-      productname:       line.productname || '',
-      quantityordered:   line.quantityordered,
-      productid:         line.productid,
+      sku, productname, quantityordered, productid,
       pickingbintracked: product?.pickingbintracked || false,
-      binlocation:       (binLevel as any)?.tbllocations?.locationcode || null,
-      binqty:            binLevel?.quantityonhand || 0,
+      binlocation: (binLevel as any)?.tbllocations?.locationcode || null,
+      binqty: binLevel?.quantityonhand || 0,
       overflowlocations: overflowLevels.map((s: any) => ({
-        locationcode:   s.tbllocations?.locationcode || '',
-        locationname:   s.tbllocations?.locationname || null,
+        locationcode: s.tbllocations?.locationcode || '',
+        locationname: s.tbllocations?.locationname || null,
         quantityonhand: s.quantityonhand,
-        bagsize:        s.bagsize > 0 ? s.bagsize : productBagsize,
+        bagsize: s.bagsize > 0 ? s.bagsize : productBagsize,
       })),
     })
+  }
+
+  for (const line of lines) {
+    if (!line.productid) continue
+    await buildPickLinesForProduct(line.productid, line.sku || '', line.productname || '', line.quantityordered)
   }
 
   pickLines.sort((a, b) => (a.binlocation || 'ZZZ').localeCompare(b.binlocation || 'ZZZ'))
