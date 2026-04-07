@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { label: 'Purchase Orders', href: '/purchase-orders' },
   { label: 'Quotes',          href: '/quotes' },
   { label: 'Reports',         href: '/reports' },
+  { label: 'Admin',           href: '/admin' },
 ]
 
 export default function Header() {

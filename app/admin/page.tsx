@@ -22,13 +22,11 @@ const ADMIN_SECTIONS = [
     title: 'Categories',
     description: 'Manage product categories and sub-categories.',
     href: '/admin/categories',
-    comingSoon: true,
   },
   {
     title: 'App Settings',
     description: 'Company name, VAT rate, order number prefix, and other system settings.',
     href: '/admin/settings',
-    comingSoon: true,
   },
   {
     title: 'Users & Roles',
