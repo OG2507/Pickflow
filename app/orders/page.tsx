@@ -227,9 +227,29 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<OrderRow[]>([])
   const [loading, setLoading] = useState(true)
   const [printing, setPrinting] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncResult, setSyncResult] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
+
+  const syncShopwired = async () => {
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const res = await fetch('/api/sync-shopwired', { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        setSyncResult(`Imported ${data.imported} order${data.imported !== 1 ? 's' : ''}${data.skipped ? `, ${data.skipped} already existed` : ''}${data.errors?.length ? ` — ${data.errors.length} error(s)` : ''}`)
+        await fetchOrders()
+      } else {
+        setSyncResult(`Sync failed: ${data.error}`)
+      }
+    } catch (err: any) {
+      setSyncResult(`Sync failed: ${err.message}`)
+    }
+    setSyncing(false)
+  }
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -327,6 +347,10 @@ export default function OrdersPage() {
           </p>
         </div>
         <div className="pf-header-actions">
+          {syncResult && <span className="pf-selected-count">{syncResult}</span>}
+          <button className="pf-btn-secondary" onClick={syncShopwired} disabled={syncing}>
+            {syncing ? 'Syncing…' : '↓ Sync Shopwired'}
+          </button>
           {selectedOrders.length > 0 && (
             <>
               <span className="pf-selected-count">{selectedOrders.length} selected</span>
