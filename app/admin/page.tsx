@@ -32,7 +32,6 @@ const ADMIN_SECTIONS = [
     title: 'Users & Roles',
     description: 'Manage user accounts and role-based access.',
     href: '/admin/users',
-    comingSoon: true,
   },
 ]
 
