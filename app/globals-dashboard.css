@@ -1,0 +1,96 @@
+/* ── Dashboard ──────────────────────────────────────────────── */
+
+.pf-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-top: 8px;
+}
+
+@media (max-width: 900px) {
+  .pf-dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .pf-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pf-dashboard-card {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 24px 20px;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  border-left: 4px solid transparent;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+.pf-dashboard-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+}
+
+.pf-dashboard-card-alert {
+  border-left-color: #e53e3e;
+}
+
+.pf-dashboard-card-warning {
+  border-left-color: #dd6b20;
+}
+
+.pf-dashboard-card-success {
+  border-left-color: #38a169;
+}
+
+.pf-dashboard-card-neutral {
+  border-left-color: #3182ce;
+}
+
+.pf-dashboard-value {
+  font-size: 40px;
+  font-weight: 700;
+  color: #1a1a1a;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.pf-dashboard-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.pf-dashboard-sub {
+  font-size: 12px;
+  color: #999;
+}
+
+/* Quick actions */
+.pf-dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.pf-dashboard-action {
+  background: #f5f7fa;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.pf-dashboard-action:hover {
+  background: #eef0f5;
+  border-color: #cdd0d8;
+}

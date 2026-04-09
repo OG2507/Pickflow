@@ -29,6 +29,11 @@ const ADMIN_SECTIONS = [
     href: '/admin/settings',
   },
   {
+    title: 'Delivery Method Map',
+    description: 'Map Shopwired delivery names to Royal Mail service codes for Click and Drop.',
+    href: '/admin/delivery-map',
+  },
+  {
     title: 'Users & Roles',
     description: 'Manage user accounts and role-based access.',
     href: '/admin/users',

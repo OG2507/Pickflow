@@ -45,8 +45,9 @@ export default function Header() {
   const handleLogout = async () => {
     clearPermissionCache()
     await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
+    setDisplayName(null)
+    setUserMenuOpen(false)
+    window.location.href = '/login'
   }
 
   const isActive = (href: string) =>
@@ -92,7 +93,6 @@ export default function Header() {
                 className="pf-user-btn"
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
               >
-                <span className="pf-user-avatar">{displayName.charAt(0).toUpperCase()}</span>
                 <span className="pf-user-name">{displayName}</span>
                 <span className="pf-user-caret">▾</span>
               </button>

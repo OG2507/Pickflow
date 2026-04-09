@@ -3,13 +3,29 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // Allow login page through
+  if (pathname === '/login') {
+    return NextResponse.next()
+  }
+
+  // Allow API routes and static files through
+  if (
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/_next/') ||
+    pathname.includes('.')
+  ) {
+    return NextResponse.next()
+  }
+
   let response = NextResponse.next({
     request: { headers: request.headers },
   })
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY!,
     {
       cookies: {
         getAll() {
@@ -28,26 +44,9 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { session } } = await supabase.auth.getSession()
 
-  const { pathname } = request.nextUrl
-
-  // Allow login page through
-  if (pathname === '/login') {
-    // If already logged in redirect to home
-    if (user) {
-      return NextResponse.redirect(new URL('/', request.url))
-    }
-    return response
-  }
-
-  // Allow API routes through — they handle their own auth
-  if (pathname.startsWith('/api/')) {
-    return response
-  }
-
-  // All other routes require auth
-  if (!user) {
+  if (!session) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
@@ -55,7 +54,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|logo.png|.*\\.svg).*)',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|logo.png|.*\\.svg).*)'],
 }

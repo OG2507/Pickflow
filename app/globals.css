@@ -9,6 +9,10 @@
 
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
 
+
+@import './globals-login.css';
+@import './globals-dashboard.css';
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;

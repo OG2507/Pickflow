@@ -34,6 +34,8 @@ type Order = {
   totalweightg: number
   notes: string | null
   createdby: string | null
+  isebay: boolean
+  cadorderid: string | null
 }
 
 type OrderLine = {
@@ -444,6 +446,20 @@ export default function OrderDetailPage() {
   // ── Print Order ────────────────────────────────────────────────
   const printOrder = async () => {
     if (!order) return
+
+    // Push to Click & Drop (skip eBay and collection orders)
+    if (!order.isebay) {
+      const cadRes = await fetch('/api/clickanddrop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderid: order.orderid }),
+      })
+      const cadData = await cadRes.json()
+      if (!cadData.success && !cadData.error?.includes('label not required')) {
+        // Non-fatal — warn but continue with printing
+        console.warn('Click and Drop push failed:', cadData.error)
+      }
+    }
 
     // Fetch picking data for each line
     type PickLine = {

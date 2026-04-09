@@ -149,6 +149,9 @@ export async function POST() {
       const totalvat   = parseFloat(swOrder.vat || swOrder.tax || '0') || 0
       const grandtotal = parseFloat(swOrder.total || swOrder.grand_total || '0') || 0
 
+      // Capture shipping method name from Shopwired
+      const swShippingMethod = swOrder.shipping_method || swOrder.delivery_method || swOrder.shippingMethod || null
+
       // Create order header
       const { data: newOrder, error: orderErr } = await supabase
         .from('tblorders')
@@ -170,6 +173,7 @@ export async function POST() {
           shiptocountry:    deliveryAddress.country || 'United Kingdom',
           subtotal,
           shippingcost:     isEbay ? 0 : shipping,
+          shippingmethod:   swShippingMethod,
           totalvat,
           ordertotal:       grandtotal,
           notes:            swOrder.comments || swOrder.customer_comments || '',
