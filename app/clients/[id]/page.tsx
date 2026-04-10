@@ -223,6 +223,19 @@ export default function ClientDetailPage() {
 
           <div className="pf-card">
             <h2 className="pf-card-title">Pricing & Shipping</h2>
+            <div className="pf-field" style={{ marginBottom: 16 }}>
+              <label className="pf-label">QuickFile Account Reference</label>
+              <input
+                className="pf-input pf-input-mono"
+                type="text"
+                name="accountreference"
+                value={form.accountreference || ''}
+                onChange={handleChange}
+                placeholder="e.g. A_E_Rice"
+                style={{ maxWidth: 200 }}
+              />
+              <p className="pf-card-note" style={{ marginTop: 4 }}>Used when exporting invoices to QuickFile</p>
+            </div>
             <div className="pf-checkbox-list">
               <label className="pf-checkbox-row">
                 <input type="checkbox" name="isreducedwholesale" checked={form.isreducedwholesale ?? false} onChange={handleChange} />

@@ -1019,6 +1019,18 @@ export default function OrderDetailPage() {
             </button>
           )}
 
+          {/* QuickFile Export — wholesale orders only, after despatch */}
+          {(order.status === 'Dispatched' || order.status === 'Invoiced' || order.status === 'Completed') &&
+           order.ordersource !== 'Shopwired' && order.ordersource !== 'eBay' && (
+            <a
+              className="pf-btn-secondary"
+              href={`/api/quickfile-export?orderid=${order.orderid}`}
+              download
+            >
+              ↓ QuickFile CSV
+            </a>
+          )}
+
           {/* Cancel */}
           {!isCancelled && !isCompleted && (
             <button className="pf-btn-deactivate" onClick={cancelOrder}>
