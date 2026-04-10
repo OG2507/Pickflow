@@ -232,6 +232,41 @@ export default function OrdersPage() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
+  const [pendingQFCount, setPendingQFCount] = useState<number | null>(null)
+  const [exporting, setExporting] = useState(false)
+
+  const checkPendingExports = async () => {
+    const res = await fetch('/api/quickfile-bulk-export', { method: 'POST' })
+    const data = await res.json()
+    setPendingQFCount(data.count || 0)
+  }
+
+  const exportToQuickFile = async () => {
+    if (!pendingQFCount) return
+    setExporting(true)
+    try {
+      const res = await fetch('/api/quickfile-bulk-export')
+      if (!res.ok) {
+        const data = await res.json()
+        setSyncResult(`QuickFile export failed: ${data.error}`)
+        setExporting(false)
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `quickfile-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      setSyncResult(`Exported ${pendingQFCount} order${pendingQFCount !== 1 ? 's' : ''} to QuickFile`)
+      setPendingQFCount(0)
+      await fetchOrders()
+    } catch (err: any) {
+      setSyncResult(`QuickFile export failed: ${err.message}`)
+    }
+    setExporting(false)
+  }
 
   const syncShopwired = async () => {
     setSyncing(true)
@@ -277,6 +312,7 @@ export default function OrdersPage() {
   }, [search, statusFilter, sourceFilter])
 
   useEffect(() => { fetchOrders() }, [fetchOrders])
+  useEffect(() => { checkPendingExports() }, [])
 
   const clientName = (o: OrderRow) =>
     o.companyname?.trim() || `${o.firstname || ''} ${o.lastname || ''}`.trim() || '—'
@@ -351,6 +387,11 @@ export default function OrdersPage() {
           <button className="pf-btn-secondary" onClick={syncShopwired} disabled={syncing}>
             {syncing ? 'Syncing…' : '↓ Sync Shopwired'}
           </button>
+          {pendingQFCount !== null && pendingQFCount > 0 && (
+            <button className="pf-btn-secondary" onClick={exportToQuickFile} disabled={exporting}>
+              {exporting ? 'Exporting…' : `↓ QuickFile CSV (${pendingQFCount})`}
+            </button>
+          )}
           {selectedOrders.length > 0 && (
             <>
               <span className="pf-selected-count">{selectedOrders.length} selected</span>
