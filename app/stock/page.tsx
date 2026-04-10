@@ -422,6 +422,24 @@ export default function StockPage() {
         <div className="pf-header-actions">
           <button
             className="pf-btn-secondary"
+            onClick={() => router.push('/stock/move')}
+          >
+            Move Stock
+          </button>
+          <button
+            className="pf-btn-secondary"
+            onClick={() => router.push('/stock/check')}
+          >
+            Stock Check
+          </button>
+          <button
+            className="pf-btn-secondary"
+            onClick={() => router.push('/stock/adjustment')}
+          >
+            Adjust Stock
+          </button>
+          <button
+            className="pf-btn-secondary"
             onClick={() => router.push('/stock/reorder')}
           >
             Reorder

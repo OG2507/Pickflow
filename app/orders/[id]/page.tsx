@@ -557,76 +557,105 @@ export default function OrderDetailPage() {
         // Mode 2a — tracked, bin has stock
         let remaining = qty
         const fromBin = Math.min(pl.binqty, remaining)
+
         if (fromBin > 0) {
-          instructions.push(`Pick ${fromBin} from bin: ${pl.binlocation}`)
+          instructions.push(`>> Take ${fromBin} from bin ${pl.binlocation}`)
           remaining -= fromBin
         }
 
         for (const ovf of pl.overflowlocations) {
           if (remaining <= 0) break
           const bagsize = ovf.bagsize || 1
-          const fullBags = Math.floor(remaining / bagsize)
-          const partial = remaining % bagsize
 
-          if (fullBags > 0) {
-            instructions.push(`Take ${fullBags} full bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize} units) from ${ovf.locationcode}`)
-            remaining -= fullBags * bagsize
-          }
+          if (bagsize === 1) {
+            instructions.push(`>> Also take ${remaining} from ${ovf.locationcode}`)
+            instructions.push(`+  Top up bin ${pl.binlocation} from ${ovf.locationcode} if possible`)
+            instructions.push(`*  Update bin ${pl.binlocation} count after topping up`)
+            remaining = 0
+          } else {
+            const fullBags = Math.floor(remaining / bagsize)
+            const partial = remaining % bagsize
 
-          if (partial > 0 && remaining > 0) {
-            const toOrder = partial
-            const toBin = bagsize - partial
-            instructions.push(`Open 1 bag from ${ovf.locationcode}: take ${toOrder} for order, put ${toBin} into ${pl.binlocation}`)
-            remaining -= toOrder
+            if (fullBags > 0) {
+              instructions.push(`>> Take ${fullBags} bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize}) from ${ovf.locationcode}`)
+              remaining -= fullBags * bagsize
+            }
+            if (partial > 0 && remaining > 0) {
+              const toBin = bagsize - partial
+              instructions.push(`>> Open 1 bag from ${ovf.locationcode} — take ${partial} for order`)
+              instructions.push(`+  Put remaining ${toBin} into bin ${pl.binlocation}`)
+              instructions.push(`*  Update bin ${pl.binlocation} count`)
+              remaining -= partial
+            }
           }
         }
 
+        if (remaining > 0) {
+          instructions.push(`!  Short by ${remaining} — check stock manually`)
+        }
+
       } else if (pl.pickingbintracked && pl.binqty === 0) {
-        // Mode 2b — tracked, bin is empty — go straight to overflow
+        // Mode 2b — tracked, bin is empty
         if (pl.overflowlocations.length === 0) {
-          instructions.push(`⚠ Bin (${pl.binlocation}) is empty and no overflow stock found — check manually`)
+          instructions.push(`!  Bin ${pl.binlocation} is empty — no overflow found`)
+          instructions.push(`!  Check stock manually`)
         } else {
           let remaining = qty
           for (const ovf of pl.overflowlocations) {
             if (remaining <= 0) break
             const bagsize = ovf.bagsize || 1
-            const fullBags = Math.floor(remaining / bagsize)
-            const partial = remaining % bagsize
 
-            if (fullBags > 0) {
-              instructions.push(`Bin (${pl.binlocation}) is empty — take ${fullBags} full bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize} units) from ${ovf.locationcode}`)
-              remaining -= fullBags * bagsize
-            }
+            if (bagsize === 1) {
+              instructions.push(`!  Bin ${pl.binlocation} is empty`)
+              instructions.push(`>> Take ${remaining} from ${ovf.locationcode}`)
+              instructions.push(`+  Top up bin ${pl.binlocation} from ${ovf.locationcode} if possible`)
+              instructions.push(`*  Update both bin ${pl.binlocation} and ${ovf.locationcode} counts`)
+              remaining = 0
+            } else {
+              const fullBags = Math.floor(remaining / bagsize)
+              const partial = remaining % bagsize
 
-            if (partial > 0 && remaining > 0) {
-              const toOrder = partial
-              const toBin = bagsize - partial
-              instructions.push(`Open 1 bag from ${ovf.locationcode}: take ${toOrder} for order, put ${toBin} into bin (${pl.binlocation})`)
-              remaining -= toOrder
+              instructions.push(`!  Bin ${pl.binlocation} is empty`)
+              if (fullBags > 0) {
+                instructions.push(`>> Take ${fullBags} bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize}) from ${ovf.locationcode}`)
+                remaining -= fullBags * bagsize
+              }
+              if (partial > 0 && remaining > 0) {
+                const toBin = bagsize - partial
+                instructions.push(`>> Open 1 bag from ${ovf.locationcode} — take ${partial} for order`)
+                instructions.push(`+  Put remaining ${toBin} into bin ${pl.binlocation}`)
+                remaining -= partial
+              }
+              instructions.push(`*  Update bin ${pl.binlocation} count`)
             }
+          }
+          if (remaining > 0) {
+            instructions.push(`!  Short by ${remaining} — check stock manually`)
           }
         }
 
       } else {
-        // Mode 1 — bin not tracked, we don't know what's in it
+        // Mode 1 — bin not tracked
         if (pl.overflowlocations.length === 0) {
-          instructions.push(`⚠ No stock locations found — check manually`)
+          instructions.push(`!  No stock locations found — check manually`)
         } else {
-          const bagsize = pl.overflowlocations[0]?.bagsize || 1
           const ovfLocation = pl.overflowlocations[0]
-          const binRef = pl.binlocation ? ` (${pl.binlocation})` : ''
+          const bagsize = ovfLocation.bagsize || 1
+          const binRef = pl.binlocation || 'bin'
 
-          instructions.push(`1. Check picking bin${binRef} — take up to ${qty} if available`)
-          instructions.push(`2. If bin doesn't have enough, go to ${ovfLocation.locationcode}: take 1 bag (${bagsize} units)`)
-          instructions.push(`3. Take what you need from the bag, put the remainder into bin${binRef}`)
-          instructions.push(`4. Count what is now in bin${binRef} and update the system`)
-          instructions.push(`   ↳ Once updated, this product will be tracked automatically`)
+          instructions.push(`>> Check ${binRef} — take ${qty} if available`)
+          if (bagsize === 1) {
+            instructions.push(`>> If short, take remainder from ${ovfLocation.locationcode} (${ovfLocation.quantityonhand} available)`)
+            instructions.push(`+  Fill ${binRef} with as many as possible from ${ovfLocation.locationcode}`)
+          } else {
+            instructions.push(`>> If short, take 1 bag (${bagsize}) from ${ovfLocation.locationcode} (${ovfLocation.quantityonhand} available)`)
+            instructions.push(`+  Put surplus from bag into ${binRef}`)
+          }
+          instructions.push(`*  Count ${binRef} and ${ovfLocation.locationcode} — update both in system`)
+          instructions.push(`   (Once updated, this product tracks automatically)`)
 
           if (pl.overflowlocations.length > 1) {
-            instructions.push(`Other overflow locations available:`)
-            for (const ovf of pl.overflowlocations.slice(1)) {
-              instructions.push(`  ${ovf.locationcode}${ovf.locationname ? ' — ' + ovf.locationname : ''}: ${ovf.quantityonhand} units`)
-            }
+            instructions.push(`   Other overflow: ${pl.overflowlocations.slice(1).map(o => `${o.locationcode} (${o.quantityonhand})`).join(', ')}`)
           }
         }
       }
@@ -684,6 +713,10 @@ export default function OrderDetailPage() {
         tr:nth-child(even) td { background: #fafafa; }
         .page-break { page-break-after: always; margin-bottom: 20pt; }
         .thankyou { margin-top: 20pt; padding-top: 12pt; border-top: 1pt solid #ccc; font-size: 9pt; text-align: center; color: #555; }
+        .pick-action { font-weight: bold; }
+        .pick-fill { color: #333; }
+        .pick-update { font-style: italic; color: #555; }
+        .pick-warn { font-weight: bold; color: #cc0000; }
       </style></head><body>
 
       <!-- PICKING LIST -->
@@ -710,7 +743,10 @@ export default function OrderDetailPage() {
               <td>${pl.sku}</td>
               <td>${pl.productname}</td>
               <td style="text-align:center"><strong>${pl.quantityordered}</strong></td>
-              <td>${instructions.map((i) => `<div style="margin-bottom:3pt">${i}</div>`).join('')}</td>
+              <td>${instructions.map((i) => {
+                const cls = i.startsWith('>>') ? 'pick-action' : i.startsWith('!') ? 'pick-warn' : i.startsWith('+') ? 'pick-fill' : i.startsWith('*') ? 'pick-update' : ''
+                return `<div class="${cls}" style="margin-bottom:3pt">${i}</div>`
+              }).join('')}</td>
             </tr>
           `
         }).join('')}</tbody>
