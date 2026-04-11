@@ -38,6 +38,11 @@ const ADMIN_SECTIONS = [
     description: 'Manage user accounts and role-based access.',
     href: '/admin/users',
   },
+  {
+    title: 'Activity Log',
+    description: 'View system activity — logins, order changes, and stock movements.',
+    href: '/admin/activity',
+  },
 ]
 
 export default function AdminPage() {

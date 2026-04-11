@@ -27,13 +27,27 @@ export default function LoginPage() {
       return
     }
 
-    // Update last login
+    // Update last login and log session
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
       await supabase
         .from('tblusers')
         .update({ lastlogin: new Date().toISOString() })
         .eq('userid', user.id)
+
+      // Log session
+      const { data: userRecord } = await supabase
+        .from('tblusers')
+        .select('displayname')
+        .eq('userid', user.id)
+        .single()
+
+      await supabase.from('tblsessionlog').insert({
+        userid: user.id,
+        username: userRecord?.displayname || user.email || 'Unknown',
+        logintime: new Date().toISOString(),
+        machinename: navigator.userAgent.slice(0, 100),
+      })
     }
 
     router.push('/')

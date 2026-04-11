@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 
 type DateRange = { from: string; to: string }
-type Tab = 'bestsellers' | 'trends' | 'clients' | 'product' | 'slowsellers'
+type Tab = 'bestsellers' | 'trends' | 'clients' | 'product' | 'slowsellers' | 'seasonal' | 'frequency'
 
 const PRESETS = [
   { label: 'Last 30 days', days: 30 },
@@ -89,6 +89,8 @@ export default function ReportsPage() {
           { key: 'clients', label: 'Client Sales' },
           { key: 'product', label: 'Product History' },
           { key: 'slowsellers', label: 'Slow Sellers' },
+          { key: 'seasonal', label: 'Seasonal' },
+          { key: 'frequency', label: 'Client Frequency' },
         ].map((t) => (
           <button
             key={t.key}
@@ -116,6 +118,8 @@ export default function ReportsPage() {
       {tab === 'clients' && <ClientSales range={range} />}
       {tab === 'product' && <ProductHistory range={range} />}
       {tab === 'slowsellers' && <SlowSellers range={range} />}
+      {tab === 'seasonal' && <SeasonalAnalysis range={range} />}
+      {tab === 'frequency' && <ClientFrequency />}
     </div>
   )
 }
@@ -627,6 +631,269 @@ function SlowSellers({ range }: { range: DateRange }) {
             </tbody>
           </table>
         )
+      )}
+    </div>
+  )
+}
+
+// ── Seasonal Analysis ────────────────────────────────────────────
+function SeasonalAnalysis({ range }: { range: DateRange }) {
+  const [data, setData] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [results, setResults] = useState<any[]>([])
+  const [selected, setSelected] = useState<{ sku: string; productname: string } | null>(null)
+
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data: lines } = await supabase
+      .from('tblorderlines')
+      .select(`sku, productname, quantityordered, tblorders!inner (orderdate, status)`)
+      .gte('tblorders.orderdate', range.from)
+      .lte('tblorders.orderdate', range.to + 'T23:59:59')
+      .eq('tblorders.status', 'Completed')
+      .limit(10000)
+
+    // Group by SKU and month
+    const map = new Map<string, { sku: string; productname: string; months: number[] }>()
+    for (const line of lines || []) {
+      const order = (line as any).tblorders
+      const month = new Date(order.orderdate).getMonth() // 0-11
+      const key = line.sku
+      const ex = map.get(key) || { sku: line.sku, productname: line.productname, months: new Array(12).fill(0) }
+      ex.months[month] += line.quantityordered
+      map.set(key, ex)
+    }
+
+    const sorted = Array.from(map.values())
+      .map(p => ({ ...p, total: p.months.reduce((s, v) => s + v, 0) }))
+      .sort((a, b) => b.total - a.total)
+
+    setData(sorted)
+    setLoading(false)
+  }, [range])
+
+  useEffect(() => { load() }, [load])
+
+  const searchProducts = (term: string) => {
+    setSearch(term)
+    if (term.length < 2) { setResults([]); return }
+    const s = term.toLowerCase()
+    setResults(data.filter(p => p.sku.toLowerCase().includes(s) || p.productname.toLowerCase().includes(s)).slice(0, 10))
+  }
+
+  const displayData = selected
+    ? data.filter(p => p.sku === selected.sku)
+    : data.slice(0, 30)
+
+  const maxVal = Math.max(...displayData.flatMap(p => p.months), 1)
+
+  if (loading) return <div className="pf-loading">Loading…</div>
+
+  return (
+    <div className="pf-card">
+      <div className="pf-panel-header">
+        <h2 className="pf-card-title" style={{ marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>
+          {selected ? `${selected.productname} — Monthly Breakdown` : 'Top 30 Products by Month'}
+        </h2>
+        {selected && (
+          <button className="pf-btn-secondary" style={{ fontSize: '0.8rem' }}
+            onClick={() => { setSelected(null); setSearch('') }}>
+            Show All
+          </button>
+        )}
+      </div>
+      <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
+
+      {/* Search */}
+      <div style={{ position: 'relative', marginBottom: '1rem', maxWidth: 300 }}>
+        <input className="pf-input" placeholder="Search product…"
+          value={search} onChange={(e) => searchProducts(e.target.value)} />
+        {results.length > 0 && (
+          <div className="pf-client-dropdown">
+            {results.map(p => (
+              <div key={p.sku} className="pf-client-dropdown-item"
+                onClick={() => { setSelected(p); setSearch(p.productname); setResults([]) }}>
+                <span className="pf-sku">{p.sku}</span>
+                <span className="pf-client-dropdown-name"> {p.productname}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {displayData.length === 0 ? <div className="pf-empty">No data for this period.</div> : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="pf-inner-table" style={{ minWidth: 700 }}>
+            <thead>
+              <tr>
+                <th style={{ minWidth: 80 }}>SKU</th>
+                <th>Product</th>
+                {MONTHS.map(m => <th key={m} className="pf-col-right" style={{ minWidth: 40 }}>{m}</th>)}
+                <th className="pf-col-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayData.map((row) => (
+                <tr key={row.sku} className="pf-row">
+                  <td className="pf-sku">{row.sku}</td>
+                  <td className="pf-productname" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.productname}</td>
+                  {row.months.map((v: number, i: number) => {
+                    const intensity = maxVal > 0 ? v / maxVal : 0
+                    return (
+                      <td key={i} className="pf-col-right" style={{
+                        background: v > 0 ? `rgba(var(--accent-rgb, 59,130,246), ${0.1 + intensity * 0.6})` : undefined,
+                        fontWeight: v > 0 ? 600 : undefined,
+                        color: v > 0 ? (intensity > 0.6 ? '#fff' : undefined) : 'var(--text-faint)',
+                        fontSize: '0.8rem',
+                      }}>
+                        {v > 0 ? v : '—'}
+                      </td>
+                    )
+                  })}
+                  <td className="pf-col-right"><strong>{row.total}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Client Frequency ─────────────────────────────────────────────
+function ClientFrequency() {
+  const [data, setData] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<'all' | 'active' | 'quiet' | 'silent'>('all')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+
+    const { data: orders } = await supabase
+      .from('tblorders')
+      .select(`clientid, orderdate, tblclients (companyname, firstname, lastname, iswholesale)`)
+      .eq('status', 'Completed')
+      .limit(10000)
+
+    const map = new Map<number, {
+      clientid: number
+      name: string
+      iswholesale: boolean
+      orderCount: number
+      lastOrder: string
+      firstOrder: string
+    }>()
+
+    for (const order of orders || []) {
+      const client = (order as any).tblclients
+      const name = client?.companyname ||
+        [client?.firstname, client?.lastname].filter(Boolean).join(' ') || '—'
+      const ex = map.get(order.clientid) || {
+        clientid: order.clientid, name, iswholesale: client?.iswholesale || false,
+        orderCount: 0, lastOrder: order.orderdate, firstOrder: order.orderdate,
+      }
+      ex.orderCount += 1
+      if (order.orderdate > ex.lastOrder) ex.lastOrder = order.orderdate
+      if (order.orderdate < ex.firstOrder) ex.firstOrder = order.orderdate
+      map.set(order.clientid, ex)
+    }
+
+    const now = Date.now()
+    const result = Array.from(map.values()).map(c => ({
+      ...c,
+      daysSinceLastOrder: Math.floor((now - new Date(c.lastOrder).getTime()) / 86400000),
+    })).sort((a, b) => a.daysSinceLastOrder - b.daysSinceLastOrder)
+
+    setData(result)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const getStatus = (days: number) => {
+    if (days <= 30) return { label: 'Active', colour: 'pf-badge-completed' }
+    if (days <= 90) return { label: 'Recent', colour: 'pf-badge-printed' }
+    if (days <= 180) return { label: 'Quiet', colour: 'pf-badge-invoiced' }
+    return { label: 'Silent', colour: 'pf-badge-cancelled' }
+  }
+
+  const filtered = data.filter(c => {
+    if (filter === 'all') return true
+    if (filter === 'active') return c.daysSinceLastOrder <= 30
+    if (filter === 'quiet') return c.daysSinceLastOrder > 90 && c.daysSinceLastOrder <= 180
+    if (filter === 'silent') return c.daysSinceLastOrder > 180
+    return true
+  })
+
+  const counts = {
+    active: data.filter(c => c.daysSinceLastOrder <= 30).length,
+    quiet: data.filter(c => c.daysSinceLastOrder > 90 && c.daysSinceLastOrder <= 180).length,
+    silent: data.filter(c => c.daysSinceLastOrder > 180).length,
+  }
+
+  if (loading) return <div className="pf-loading">Loading…</div>
+
+  return (
+    <div className="pf-card">
+      <div className="pf-panel-header">
+        <h2 className="pf-card-title" style={{ marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>
+          Client Order Frequency
+        </h2>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {[
+            { key: 'all', label: `All (${data.length})` },
+            { key: 'active', label: `Active (${counts.active})` },
+            { key: 'quiet', label: `Quiet (${counts.quiet})` },
+            { key: 'silent', label: `Silent (${counts.silent})` },
+          ].map(f => (
+            <button key={f.key}
+              className={filter === f.key ? 'pf-btn-primary' : 'pf-btn-secondary'}
+              style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
+              onClick={() => setFilter(f.key as any)}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
+      <p className="pf-card-note" style={{ marginBottom: '1rem' }}>
+        Active = ordered in last 30 days · Recent = 31–90 days · Quiet = 91–180 days · Silent = 180+ days
+      </p>
+
+      {filtered.length === 0 ? <div className="pf-empty">No clients in this category.</div> : (
+        <table className="pf-inner-table">
+          <thead>
+            <tr>
+              <th>Client</th>
+              <th>Type</th>
+              <th className="pf-col-right">Orders</th>
+              <th className="pf-col-right">Last Order</th>
+              <th className="pf-col-right">Days Ago</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((c) => {
+              const status = getStatus(c.daysSinceLastOrder)
+              return (
+                <tr key={c.clientid} className="pf-row">
+                  <td className="pf-productname">{c.name}</td>
+                  <td className="pf-category">{c.iswholesale ? 'Wholesale' : 'Website'}</td>
+                  <td className="pf-col-right pf-category">{c.orderCount}</td>
+                  <td className="pf-col-right pf-category">
+                    {new Date(c.lastOrder).toLocaleDateString('en-GB')}
+                  </td>
+                  <td className="pf-col-right pf-category">{c.daysSinceLastOrder}</td>
+                  <td><span className={`pf-badge ${status.colour}`}>{status.label}</span></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       )}
     </div>
   )
