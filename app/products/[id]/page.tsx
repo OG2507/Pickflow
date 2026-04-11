@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCategories } from '@/lib/useCategories'
@@ -9,6 +9,80 @@ import ProductStockPanel from '@/components/ProductStockPanel'
 import ProductSuppliersPanel from '@/components/ProductSuppliersPanel'
 import ProductComponentsPanel from '@/components/ProductComponentsPanel'
 import type { Product, PricingCode } from '@/lib/types'
+
+function ProductSalesPanel({ sku }: { sku: string }) {
+  const [history, setHistory] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [totalUnits, setTotalUnits] = useState(0)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data: lines } = await supabase
+      .from('tblorderlines')
+      .select(`quantityordered,
+        tblorders!inner (orderdate, status, shiptoname,
+          tblclients (companyname, firstname, lastname))`)
+      .eq('sku', sku)
+      .eq('tblorders.status', 'Completed')
+      .limit(10000)
+
+    const sorted = (lines || []).sort((a: any, b: any) =>
+      b.tblorders.orderdate.localeCompare(a.tblorders.orderdate))
+
+    const total = sorted.reduce((s: number, l: any) => s + l.quantityordered, 0)
+    setHistory(sorted.slice(0, 50))
+    setTotalUnits(total)
+    setLoading(false)
+  }, [sku])
+
+  useEffect(() => { load() }, [load])
+
+  return (
+    <div className="pf-card">
+      <div className="pf-panel-header">
+        <h2 className="pf-card-title" style={{ marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>
+          Sales History
+        </h2>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)' }}>{totalUnits.toLocaleString()}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>total units sold</div>
+        </div>
+      </div>
+      <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
+      {loading ? <div className="pf-loading">Loading…</div> : history.length === 0 ? (
+        <div className="pf-empty">No sales recorded for this product.</div>
+      ) : (
+        <table className="pf-inner-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Client</th>
+              <th className="pf-col-right">Units</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history.map((line: any, i) => {
+              const order = line.tblorders
+              const client = order?.tblclients
+              const clientName = client?.companyname ||
+                [client?.firstname, client?.lastname].filter(Boolean).join(' ') ||
+                order?.shiptoname || '—'
+              return (
+                <tr key={i} className="pf-row">
+                  <td className="pf-category">
+                    {order?.orderdate ? new Date(order.orderdate).toLocaleDateString('en-GB') : '—'}
+                  </td>
+                  <td className="pf-productname">{clientName}</td>
+                  <td className="pf-col-right"><strong>{line.quantityordered}</strong></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
 
 const VAT_OPTIONS = ['Standard', 'Zero', 'Exempt']
 
@@ -384,6 +458,12 @@ export default function ProductDetailPage() {
           {/* Supplier links panel — not shown for bundles */}
           {product && !product.isbundle && <ProductSuppliersPanel productid={product.productid} />}
 
+          {/* Sales history panel */}
+          {product && <ProductSalesPanel sku={product.sku} />}
+
+          {/* Stock movements panel */}
+          {product && <ProductMovementsPanel productid={product.productid} />}
+
           <div className="pf-card pf-card-meta">
             <h2 className="pf-card-title">Record Info</h2>
             <div className="pf-meta-row">
@@ -402,6 +482,93 @@ export default function ProductDetailPage() {
 
         </div>
       </div>
+    </div>
+  )
+}
+
+function ProductMovementsPanel({ productid }: { productid: number }) {
+  const router = useRouter()
+  const [movements, setMovements] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('tblstockmovements')
+      .select(`movementid, movementdate, movementtype, quantity, reference, reason, fromlocationid, tolocationid`)
+      .eq('productid', productid)
+      .order('movementdate', { ascending: false })
+      .limit(50)
+
+    // Fetch location codes
+    const locationIds = new Set<number>()
+    for (const r of data || []) {
+      if (r.fromlocationid) locationIds.add(r.fromlocationid)
+      if (r.tolocationid) locationIds.add(r.tolocationid)
+    }
+    const locationMap = new Map<number, string>()
+    if (locationIds.size > 0) {
+      const { data: locs } = await supabase
+        .from('tbllocations')
+        .select('locationid, locationcode')
+        .in('locationid', Array.from(locationIds))
+      for (const l of locs || []) locationMap.set(l.locationid, l.locationcode)
+    }
+
+    setMovements((data || []).map((r: any) => ({
+      ...r,
+      fromlocationcode: r.fromlocationid ? locationMap.get(r.fromlocationid) || null : null,
+      tolocationcode:   r.tolocationid ? locationMap.get(r.tolocationid) || null : null,
+    })))
+    setLoading(false)
+  }, [productid])
+
+  useEffect(() => { load() }, [load])
+
+  const TYPE_COLOURS: Record<string, string> = {
+    'PICK': 'pf-badge-dispatched', 'TRANSFER': 'pf-badge-printed',
+    'ADJUSTMENT': 'pf-badge-invoiced', 'RECEIPT': 'pf-badge-completed',
+  }
+
+  return (
+    <div className="pf-card">
+      <div className="pf-panel-header">
+        <h2 className="pf-card-title" style={{ marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>
+          Stock Movements
+        </h2>
+        <button className="pf-btn-edit" onClick={() => router.push(`/stock/movements?productid=${productid}`)}>
+          View All →
+        </button>
+      </div>
+      <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
+      {loading ? <div className="pf-loading">Loading…</div> : movements.length === 0 ? (
+        <div className="pf-empty">No stock movements recorded.</div>
+      ) : (
+        <table className="pf-inner-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>From</th>
+              <th>To</th>
+              <th className="pf-col-right">Qty</th>
+              <th>Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            {movements.map((m: any) => (
+              <tr key={m.movementid} className="pf-row">
+                <td className="pf-category">{new Date(m.movementdate).toLocaleDateString('en-GB')}</td>
+                <td><span className={`pf-badge ${TYPE_COLOURS[m.movementtype] || ''}`}>{m.movementtype}</span></td>
+                <td className="pf-category">{m.fromlocationcode || '—'}</td>
+                <td className="pf-category">{m.tolocationcode || '—'}</td>
+                <td className="pf-col-right"><strong>{m.quantity}</strong></td>
+                <td className="pf-category">{m.reference || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }

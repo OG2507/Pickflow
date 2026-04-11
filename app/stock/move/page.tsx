@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import StockTabs from '@/components/StockTabs'
 
 type StockRow = {
   stocklevelid: number
@@ -23,6 +24,7 @@ type Location = {
 
 export default function StockMovementPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   const [sourceCode, setSourceCode] = useState('')
   const [sourceLocation, setSourceLocation] = useState<Location | null>(null)
@@ -31,9 +33,24 @@ export default function StockMovementPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  // Per-row move state: { stocklevelid: { destCode, qty } }
   const [moves, setMoves] = useState<Record<number, { destCode: string; qty: string }>>({})
   const [saving, setSaving] = useState<number | null>(null)
+
+  // Auto-load location from URL parameter
+  useEffect(() => {
+    const loc = searchParams.get('location')
+    if (loc) {
+      setSourceCode(loc.toUpperCase())
+    }
+  }, [searchParams])
+
+  // Auto-trigger lookup when sourceCode populated from URL
+  useEffect(() => {
+    const loc = searchParams.get('location')
+    if (loc && sourceCode === loc.toUpperCase()) {
+      lookupSource()
+    }
+  }, [sourceCode])
 
   const lookupSource = async () => {
     if (!sourceCode.trim()) return
@@ -172,11 +189,12 @@ export default function StockMovementPage() {
     <div className="pf-page">
       <div className="pf-page-header">
         <div>
-          <button className="pf-btn-ghost" onClick={() => router.push('/stock')}>← Stock</button>
           <h1 className="pf-page-title">Move Stock</h1>
           <p className="pf-page-subtitle">Move stock from one location to another</p>
         </div>
       </div>
+
+      <StockTabs />
 
       {error && (
         <div className="pf-error-banner" style={{ marginBottom: 16 }}>

@@ -1,12 +1,18 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { Client } from '@/lib/types'
 
 const SOURCE_OPTIONS = ['', 'Phone', 'Website', 'Email', 'Referral', 'Trade Show', 'Other']
 const COUNTRY_OPTIONS = ['United Kingdom', 'Ireland', 'France', 'Germany', 'Spain', 'Italy', 'Netherlands', 'Belgium', 'United States', 'Canada', 'Australia', 'Other']
+
+const STATUS_COLOURS: Record<string, string> = {
+  'New': 'pf-badge-new', 'Printed': 'pf-badge-printed', 'Picking': 'pf-badge-picking',
+  'Dispatched': 'pf-badge-dispatched', 'Completed': 'pf-badge-completed',
+  'Cancelled': 'pf-badge-cancelled', 'Invoiced': 'pf-badge-invoiced',
+}
 
 export default function ClientDetailPage() {
   const params = useParams()
@@ -275,6 +281,93 @@ export default function ClientDetailPage() {
 
         </div>
       </div>
+
+      {/* Orders panel — full width below columns */}
+      <ClientOrdersPanel clientid={id} router={router} />
+
+    </div>
+  )
+}
+
+function ClientOrdersPanel({ clientid, router }: { clientid: string; router: any }) {
+  const [orders, setOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [totalUnits, setTotalUnits] = useState(0)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('tblorders')
+      .select(`orderid, ordernumber, orderdate, status, ordersource, ordertotal,
+        tblorderlines (quantityordered)`)
+      .eq('clientid', clientid)
+      .order('orderdate', { ascending: false })
+      .limit(200)
+
+    const list = (data || []).map((o: any) => ({
+      ...o,
+      units: (o.tblorderlines || []).reduce((s: number, l: any) => s + l.quantityordered, 0),
+    }))
+
+    setOrders(list)
+    setTotalUnits(list.reduce((s, o) => s + o.units, 0))
+    setLoading(false)
+  }, [clientid])
+
+  useEffect(() => { load() }, [load])
+
+  const formatPrice = (n: number) =>
+    new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(n)
+
+  return (
+    <div className="pf-card" style={{ marginTop: '1.5rem' }}>
+      <div className="pf-panel-header">
+        <h2 className="pf-card-title" style={{ marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>
+          Order History
+        </h2>
+        <div style={{ display: 'flex', gap: '1.5rem', textAlign: 'right' }}>
+          <div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)' }}>{orders.length}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>orders</div>
+          </div>
+          <div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)' }}>{totalUnits.toLocaleString()}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>units</div>
+          </div>
+        </div>
+      </div>
+      <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
+      {loading ? <div className="pf-loading">Loading…</div> : orders.length === 0 ? (
+        <div className="pf-empty">No orders for this client.</div>
+      ) : (
+        <table className="pf-inner-table">
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Date</th>
+              <th>Source</th>
+              <th>Status</th>
+              <th className="pf-col-right">Units</th>
+              <th className="pf-col-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map((o) => (
+              <tr key={o.orderid} className="pf-row" style={{ cursor: 'pointer' }}
+                onClick={() => router.push(`/orders/${o.orderid}`)}>
+                <td className="pf-sku">{o.ordernumber || '—'}</td>
+                <td className="pf-category">{o.orderdate ? new Date(o.orderdate).toLocaleDateString('en-GB') : '—'}</td>
+                <td className="pf-category">{o.ordersource || '—'}</td>
+                <td>
+                  <span className={`pf-badge ${STATUS_COLOURS[o.status] || ''}`}>{o.status}</span>
+                </td>
+                <td className="pf-col-right pf-category">{o.units}</td>
+                <td className="pf-col-right pf-price">{o.ordertotal ? formatPrice(o.ordertotal) : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }

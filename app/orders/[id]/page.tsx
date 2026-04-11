@@ -926,17 +926,18 @@ export default function OrderDetailPage() {
 
       const productBagsize = product?.bagsizedefault || 1
 
-      const { data: stockLevels } = await supabase
+      const { data: stockLevelsRaw } = await supabase
         .from('tblstocklevels')
-        .select('stocklevelid, quantityonhand, pickpriority, bagsize, locationid')
+        .select('stocklevelid, quantityonhand, pickpriority, bagsize, locationid, tbllocations(locationtype, pickpriority)')
         .eq('productid', productid)
         .gt('quantityonhand', 0)
-        .order('pickpriority')
 
-      if (!stockLevels) return
+      if (!stockLevelsRaw) return
 
-      const binLevel = stockLevels.find((s) => s.pickpriority === 0)
-      const overflowLevels = stockLevels.filter((s) => s.pickpriority > 0)
+      const stockLevels = stockLevelsRaw.sort((a: any, b: any) => (a.tbllocations?.pickpriority || 9999) - (b.tbllocations?.pickpriority || 9999))
+
+      const binLevel = (stockLevels as any[]).find((s) => s.tbllocations?.locationtype === 'Picking Bin')
+      const overflowLevels = (stockLevels as any[]).filter((s) => s.tbllocations?.locationtype !== 'Picking Bin')
 
       let remaining = quantityordered
 

@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import StockTabs from '@/components/StockTabs'
 
 type StockByProduct = {
   productid: number
@@ -422,21 +423,9 @@ export default function StockPage() {
         <div className="pf-header-actions">
           <button
             className="pf-btn-secondary"
-            onClick={() => router.push('/stock/move')}
-          >
-            Move Stock
-          </button>
-          <button
-            className="pf-btn-secondary"
             onClick={() => router.push('/stock/check')}
           >
             Stock Check
-          </button>
-          <button
-            className="pf-btn-secondary"
-            onClick={() => router.push('/stock/adjustment')}
-          >
-            Adjust Stock
           </button>
           <button
             className="pf-btn-secondary"
@@ -460,6 +449,8 @@ export default function StockPage() {
           </div>
         </div>
       </div>
+
+      <StockTabs />
 
       {/* Filters */}
       <div className="pf-filters">

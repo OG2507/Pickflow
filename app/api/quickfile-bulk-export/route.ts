@@ -38,14 +38,24 @@ export async function GET() {
     const orderIds = orders.map((o: any) => o.orderid)
     const { data: allLines } = await supabase
       .from('tblorderlines')
-      .select(`
-        orderid, orderlineid, sku, productname,
-        quantityordered, unitprice, linetotal, vatstatus,
-        tblproducts (pricingcode)
-      `)
+      .select(`orderid, orderlineid, sku, productname, productid,
+        quantityordered, unitprice, linetotal, vatstatus`)
       .in('orderid', orderIds)
       .order('orderid')
       .order('orderlineid')
+
+    // Fetch pricing codes separately
+    const productIds = (allLines || []).map((l: any) => l.productid).filter(Boolean)
+    const pricingMap = new Map<number, string>()
+    if (productIds.length > 0) {
+      const { data: products } = await supabase
+        .from('tblproducts')
+        .select('productid, pricingcode')
+        .in('productid', productIds)
+      for (const p of products || []) {
+        if (p.pricingcode) pricingMap.set(p.productid, p.pricingcode)
+      }
+    }
 
     const linesByOrder = new Map<number, any[]>()
     for (const line of allLines || []) {
@@ -97,8 +107,8 @@ export async function GET() {
 
       // Product lines
       for (const line of lines) {
-        const pricingCode = line.tblproducts?.pricingcode
-          ? `Price Code ${line.tblproducts.pricingcode}`
+        const pricingCode = line.productid && pricingMap.has(line.productid)
+          ? `Price Code ${pricingMap.get(line.productid)}`
           : ''
         const vatRate    = line.vatstatus === 'Standard' ? '20' : '0'
         const description = `${line.sku} / ${line.productname}`

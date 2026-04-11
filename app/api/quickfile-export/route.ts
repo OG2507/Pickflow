@@ -33,15 +33,27 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     }
 
-    // Fetch order lines with product details
-    const { data: lines } = await supabase
+    // Fetch order lines
+    const { data: lines, error: linesErr } = await supabase
       .from('tblorderlines')
-      .select(`
-        orderlineid, sku, productname, quantityordered, unitprice, linetotal, vatstatus,
-        tblproducts (pricingcode)
-      `)
+      .select(`orderlineid, sku, productname, quantityordered, unitprice, linetotal, vatstatus, productid`)
       .eq('orderid', orderid)
       .order('orderlineid')
+
+    console.log('QuickFile export — orderid:', orderid, 'lines:', lines?.length, 'error:', linesErr?.message)
+
+    // Fetch pricing codes for the products on this order
+    const productIds = (lines || []).map((l: any) => l.productid).filter(Boolean)
+    const pricingMap = new Map<number, string>()
+    if (productIds.length > 0) {
+      const { data: products } = await supabase
+        .from('tblproducts')
+        .select('productid, pricingcode')
+        .in('productid', productIds)
+      for (const p of products || []) {
+        if (p.pricingcode) pricingMap.set(p.productid, p.pricingcode)
+      }
+    }
 
     const client = order.tblclients as any
     const clientName = client?.companyname ||
@@ -84,8 +96,8 @@ export async function GET(request: Request) {
     // Product lines
     for (const line of lines || []) {
       const l = line as any
-      const pricingCode = l.tblproducts?.pricingcode
-        ? `Price Code ${l.tblproducts.pricingcode}`
+      const pricingCode = l.productid && pricingMap.has(l.productid)
+        ? `Price Code ${pricingMap.get(l.productid)}`
         : ''
       const vatRate = l.vatstatus === 'Standard' ? '20' : '0'
       const description = `${l.sku} / ${l.productname}`

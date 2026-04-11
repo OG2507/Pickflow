@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 
 type DateRange = { from: string; to: string }
-type Tab = 'bestsellers' | 'trends' | 'clients' | 'product'
+type Tab = 'bestsellers' | 'trends' | 'clients' | 'product' | 'slowsellers'
 
 const PRESETS = [
   { label: 'Last 30 days', days: 30 },
@@ -88,6 +88,7 @@ export default function ReportsPage() {
           { key: 'trends', label: 'Monthly Trends' },
           { key: 'clients', label: 'Client Sales' },
           { key: 'product', label: 'Product History' },
+          { key: 'slowsellers', label: 'Slow Sellers' },
         ].map((t) => (
           <button
             key={t.key}
@@ -114,6 +115,7 @@ export default function ReportsPage() {
       {tab === 'trends' && <MonthlyTrends range={range} />}
       {tab === 'clients' && <ClientSales range={range} />}
       {tab === 'product' && <ProductHistory range={range} />}
+      {tab === 'slowsellers' && <SlowSellers range={range} />}
     </div>
   )
 }
@@ -467,6 +469,164 @@ function ProductHistory({ range }: { range: DateRange }) {
             </table>
           )}
         </div>
+      )}
+    </div>
+  )
+}
+
+// ── Slow Sellers ─────────────────────────────────────────────────
+function SlowSellers({ range }: { range: DateRange }) {
+  const [view, setView] = useState<'lowest' | 'unsold'>('lowest')
+  const [lowest, setLowest] = useState<any[]>([])
+  const [unsold, setUnsold] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+
+    // Fetch all active products
+    const { data: products } = await supabase
+      .from('tblproducts')
+      .select('sku, productname')
+      .eq('isactive', true)
+      .eq('isdiscontinued', false)
+      .limit(10000)
+
+    // Fetch all sales in period
+    const { data: lines } = await supabase
+      .from('tblorderlines')
+      .select(`sku, quantityordered, tblorders!inner (orderdate, status)`)
+      .gte('tblorders.orderdate', range.from)
+      .lte('tblorders.orderdate', range.to + 'T23:59:59')
+      .eq('tblorders.status', 'Completed')
+      .limit(10000)
+
+    // Build sales map
+    const salesMap = new Map<string, number>()
+    for (const line of lines || []) {
+      salesMap.set(line.sku, (salesMap.get(line.sku) || 0) + line.quantityordered)
+    }
+
+    // Fetch last sale date for each product
+    const { data: allLines } = await supabase
+      .from('tblorderlines')
+      .select(`sku, tblorders!inner (orderdate, status)`)
+      .eq('tblorders.status', 'Completed')
+      .limit(10000)
+
+    const lastSaleMap = new Map<string, string>()
+    for (const line of allLines || []) {
+      const order = (line as any).tblorders
+      const existing = lastSaleMap.get(line.sku)
+      if (!existing || order.orderdate > existing) {
+        lastSaleMap.set(line.sku, order.orderdate)
+      }
+    }
+
+    const productList = products || []
+
+    // Lowest sellers — products with at least 1 sale, sorted ascending
+    const withSales = productList
+      .filter(p => salesMap.has(p.sku))
+      .map(p => ({ ...p, units: salesMap.get(p.sku) || 0, lastSale: lastSaleMap.get(p.sku) || null }))
+      .sort((a, b) => a.units - b.units)
+      .slice(0, 50)
+
+    // Unsold — active products with zero sales in period
+    const noSales = productList
+      .filter(p => !salesMap.has(p.sku))
+      .map(p => ({ ...p, units: 0, lastSale: lastSaleMap.get(p.sku) || null }))
+      .sort((a, b) => {
+        // Sort by last sale date ascending (oldest first), nulls last
+        if (!a.lastSale && !b.lastSale) return a.productname.localeCompare(b.productname)
+        if (!a.lastSale) return 1
+        if (!b.lastSale) return -1
+        return a.lastSale.localeCompare(b.lastSale)
+      })
+
+    setLowest(withSales)
+    setUnsold(noSales)
+    setLoading(false)
+  }, [range])
+
+  useEffect(() => { load() }, [load])
+
+  const formatLastSale = (date: string | null) => {
+    if (!date) return 'Never'
+    const d = new Date(date)
+    const days = Math.floor((Date.now() - d.getTime()) / 86400000)
+    if (days < 30) return `${days}d ago`
+    if (days < 365) return `${Math.floor(days / 30)}mo ago`
+    return `${Math.floor(days / 365)}yr ago`
+  }
+
+  if (loading) return <div className="pf-loading">Loading…</div>
+
+  return (
+    <div className="pf-card">
+      <div className="pf-panel-header">
+        <h2 className="pf-card-title" style={{ marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>
+          {view === 'lowest' ? `Lowest 50 Sellers in Period (${lowest.length})` : `Not Sold in Period (${unsold.length})`}
+        </h2>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className={view === 'lowest' ? 'pf-btn-primary' : 'pf-btn-secondary'}
+            style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
+            onClick={() => setView('lowest')}>Lowest Sellers</button>
+          <button className={view === 'unsold' ? 'pf-btn-primary' : 'pf-btn-secondary'}
+            style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}
+            onClick={() => setView('unsold')}>Not Sold</button>
+        </div>
+      </div>
+      <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
+
+      {view === 'lowest' && (
+        lowest.length === 0 ? <div className="pf-empty">No sales data for this period.</div> : (
+          <table className="pf-inner-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Product</th>
+                <th className="pf-col-right">Units in Period</th>
+                <th className="pf-col-right">Last Sale</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lowest.map((row) => (
+                <tr key={row.sku} className="pf-row">
+                  <td className="pf-sku">{row.sku}</td>
+                  <td className="pf-productname">{row.productname}</td>
+                  <td className="pf-col-right pf-category">{row.units}</td>
+                  <td className="pf-col-right pf-category">{formatLastSale(row.lastSale)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      )}
+
+      {view === 'unsold' && (
+        unsold.length === 0 ? <div className="pf-empty">All active products have sold in this period.</div> : (
+          <table className="pf-inner-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Product</th>
+                <th className="pf-col-right">Last Sale</th>
+              </tr>
+            </thead>
+            <tbody>
+              {unsold.map((row) => (
+                <tr key={row.sku} className="pf-row">
+                  <td className="pf-sku">{row.sku}</td>
+                  <td className="pf-productname">{row.productname}</td>
+                  <td className="pf-col-right pf-category" style={{ color: !row.lastSale ? 'var(--error)' : undefined }}>
+                    {formatLastSale(row.lastSale)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
       )}
     </div>
   )

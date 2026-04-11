@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import StockTabs from '@/components/StockTabs'
 
 type StockRow = {
   stocklevelid: number
@@ -131,7 +132,7 @@ export default function StockAdjustmentPage() {
       .eq('stocklevelid', row.stocklevelid)
 
     // Log movement
-    await supabase.from('tblstockmovements').insert({
+    const { error: movErr } = await supabase.from('tblstockmovements').insert({
       movementdate: new Date().toISOString(),
       movementtype: 'ADJUSTMENT',
       productid: row.productid,
@@ -141,6 +142,7 @@ export default function StockAdjustmentPage() {
       reference: `Adjustment at ${row.locationcode}`,
       reason: adj.reason,
     })
+    if (movErr) console.error('Movement insert error:', movErr.message)
 
     // Update local state
     setRows(prev => prev.map(r =>
@@ -154,11 +156,12 @@ export default function StockAdjustmentPage() {
     <div className="pf-page">
       <div className="pf-page-header">
         <div>
-          <button className="pf-btn-ghost" onClick={() => router.push('/stock')}>← Stock</button>
           <h1 className="pf-page-title">Stock Adjustment</h1>
           <p className="pf-page-subtitle">Correct stock quantities after a count</p>
         </div>
       </div>
+
+      <StockTabs />
 
       {error && (
         <div className="pf-error-banner" style={{ marginBottom: 16 }}>
