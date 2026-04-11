@@ -13,8 +13,11 @@ type ShippingRate = {
   minweightg: number | null
   maxweightg: number | null
   servicecode: string | null
+  packagesize: string | null
   notes: string | null
 }
+
+const PACKAGE_SIZES = ['', 'letter', 'large letter', 'small parcel', 'medium parcel']
 
 const emptyRate = {
   methodname:   '',
@@ -25,6 +28,7 @@ const emptyRate = {
   minweightg:   '',
   maxweightg:   '',
   servicecode:  '',
+  packagesize:  '',
   notes:        '',
 }
 
@@ -100,6 +104,7 @@ export default function ShippingRatesPage() {
         minweightg:   editForm.minweightg ? parseInt(String(editForm.minweightg)) : null,
         maxweightg:   editForm.maxweightg ? parseInt(String(editForm.maxweightg)) : null,
         servicecode:  editForm.servicecode || null,
+        packagesize:  editForm.packagesize || null,
         notes:        editForm.notes || null,
       })
       .eq('shippingrateid', editingId)
@@ -153,6 +158,7 @@ export default function ShippingRatesPage() {
         minweightg:   newForm.minweightg ? parseInt(newForm.minweightg) : null,
         maxweightg:   newForm.maxweightg ? parseInt(newForm.maxweightg) : null,
         servicecode:  newForm.servicecode.trim() || null,
+        packagesize:  newForm.packagesize.trim() || null,
         notes:        newForm.notes.trim() || null,
       })
 
@@ -270,6 +276,12 @@ export default function ShippingRatesPage() {
               <input className="pf-input pf-input-mono" name="servicecode" value={newForm.servicecode} onChange={handleNewChange} placeholder="e.g. CRL24" />
             </div>
             <div className="pf-field">
+              <label className="pf-label">Package Size</label>
+              <select className="pf-input" name="packagesize" value={newForm.packagesize} onChange={(e) => setNewForm(prev => ({ ...prev, packagesize: e.target.value }))}>
+                {PACKAGE_SIZES.map(s => <option key={s} value={s}>{s || '— select —'}</option>)}
+              </select>
+            </div>
+            <div className="pf-field">
               <label className="pf-label">Display Order</label>
               <input className="pf-input pf-input-num" type="number" min="1" name="displayorder" value={newForm.displayorder} onChange={handleNewChange} placeholder="99" />
             </div>
@@ -301,6 +313,7 @@ export default function ShippingRatesPage() {
                 <th>Carrier</th>
                 <th>Weight Band</th>
                 <th>Service Code</th>
+                <th>Package Size</th>
                 <th className="pf-col-right">Price</th>
                 <th className="pf-col-center">Order</th>
                 <th className="pf-col-center">Active</th>
@@ -359,6 +372,16 @@ export default function ShippingRatesPage() {
                       />
                     </td>
                     <td>
+                      <select
+                        className="pf-input pf-input-sm"
+                        name="packagesize"
+                        value={editForm.packagesize || ''}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, packagesize: e.target.value }))}
+                      >
+                        {PACKAGE_SIZES.map(s => <option key={s} value={s}>{s || '—'}</option>)}
+                      </select>
+                    </td>
+                    <td>
                       <input
                         className="pf-input pf-input-sm pf-input-num"
                         style={{ width: '80px' }}
@@ -402,6 +425,7 @@ export default function ShippingRatesPage() {
                     <td className="pf-category">{rate.carrier || '—'}</td>
                     <td className="pf-category">{formatWeight(rate.minweightg, rate.maxweightg)}</td>
                     <td className="pf-sku">{rate.servicecode || '—'}</td>
+                    <td className="pf-category">{rate.packagesize || '—'}</td>
                     <td className="pf-col-right pf-price">{formatPrice(rate.price)}</td>
                     <td className="pf-col-center pf-category">{rate.displayorder}</td>
                     <td className="pf-col-center">

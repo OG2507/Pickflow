@@ -26,47 +26,68 @@ export async function POST() {
   try {
     let imported = 0
     let skipped = 0
-    let errors: string[] = []
+    const errors: string[] = []
 
-    // Fetch paid orders from Shopwired — page through results
-    let page = 1
-    let hasMore = true
+    // Fetch paid orders from last 30 days
+    const since = new Date()
+    since.setDate(since.getDate() - 30)
+    const sinceStr = since.toISOString().slice(0, 10)
+
     const allOrders: any[] = []
+    let offset = 0
+    const limit = 50
+    let hasMore = true
 
     while (hasMore) {
-      const data = await swFetch(`/orders?status=paid&limit=50&page=${page}`)
-      const orders = data.orders || data
+      console.log(`Fetching offset ${offset}...`)
+      if (offset >= 200) { hasMore = false; break }
+      const data = await swFetch(`/orders?count=${limit}&offset=${offset}&status_id=231566&created_after=${sinceStr}`)
+      const orders = Array.isArray(data) ? data : (data.orders || [])
+      console.log(`Got ${orders.length} orders at offset ${offset}`)
+
       if (!Array.isArray(orders) || orders.length === 0) {
         hasMore = false
+        break
+      }
+
+      // Filter to Paid orders only
+      const paidOrders = orders.filter((o: any) =>
+        o.status?.type === 'paid' || o.status?.name === 'Paid'
+      )
+      allOrders.push(...paidOrders)
+
+      if (orders.length < limit) {
+        hasMore = false
       } else {
-        allOrders.push(...orders)
-        hasMore = orders.length === 50
-        page++
+        offset += limit
       }
     }
 
-    // Load SKU mapping table
+    // Load SKU mapping table — fetch all rows (override 1000 row default limit)
     const { data: mappingData } = await supabase
       .from('tblskumapping')
       .select('websitesku, realsku')
+      .range(0, 9999)
 
     const skuMap = new Map<string, string>()
     for (const m of mappingData || []) {
       skuMap.set(m.websitesku, m.realsku)
     }
 
-    // Load products for pack quantity lookup
+    // Load products for pack quantity lookup — fetch all rows
     const { data: productsData } = await supabase
       .from('tblproducts')
-      .select('productid, sku, packquantity, pricingcode, pricingcodeid')
+      .select('productid, sku, productname, packquantity, pricingcode, pricingcodeid')
+      .range(0, 9999)
 
     const productBySku = new Map<string, any>()
     for (const p of productsData || []) {
       productBySku.set(p.sku, p)
     }
+    console.log(`SKU map size: ${skuMap.size}, Product map size: ${productBySku.size}`)
 
     for (const swOrder of allOrders) {
-      const externalRef = String(swOrder.id || swOrder.order_id || '')
+      const externalRef = String(swOrder.id || '')
 
       // Skip if already imported
       const { data: existing } = await supabase
@@ -80,18 +101,28 @@ export async function POST() {
         continue
       }
 
-      const isEbay = (swOrder.payment_method || '').toLowerCase().includes('ebay')
-      const deliveryAddress = swOrder.delivery_address || swOrder.shipping_address || {}
-      const billingAddress = swOrder.billing_address || {}
+      // Shopwired API field names (from actual response)
+      const billingAddr  = swOrder.billingAddress || {}
+      const shippingAddr = swOrder.shippingAddress || {}
 
-      const shiptoname = deliveryAddress.name || billingAddress.name || ''
-      const email = swOrder.customer_email || billingAddress.email || ''
-      const phone = deliveryAddress.phone || billingAddress.phone || ''
+      const isEbay     = (swOrder.paymentMethod || '').toLowerCase().includes('ebay')
+      const email      = billingAddr.emailAddress || shippingAddr.emailAddress || ''
+      const shiptoname = shippingAddr.name || billingAddr.name || ''
+      const phone      = shippingAddr.telephone || billingAddr.telephone || ''
+
+      // Shipping method from shipping array
+      const shippingEntry  = Array.isArray(swOrder.shipping) ? swOrder.shipping[0] : null
+      const swShippingMethod = shippingEntry?.name || null
+
+      // Totals
+      const subtotal   = parseFloat(swOrder.subTotal || '0') || 0
+      const shipping   = parseFloat(swOrder.shippingTotal || '0') || 0
+      const totalvat   = parseFloat(swOrder.tax?.value || '0') || 0
+      const grandtotal = parseFloat(swOrder.total || '0') || 0
 
       // Find or create client
       let clientid: number | null = null
 
-      // Check by email first
       if (email) {
         const { data: existingClient } = await supabase
           .from('tblclients')
@@ -102,30 +133,30 @@ export async function POST() {
         if (existingClient) {
           clientid = existingClient.clientid
         } else {
-          // Create new website/ebay client
           const nameParts = shiptoname.split(' ')
-          const firstname = nameParts[0] || ''
-          const lastname = nameParts.slice(1).join(' ') || ''
+          const firstname  = nameParts[0] || ''
+          const lastname   = nameParts.slice(1).join(' ') || ''
           const clienttype = isEbay ? 'eBay' : 'Website'
 
           const { data: newClient, error: clientErr } = await supabase
             .from('tblclients')
             .insert({
-              companyname: '',
+              companyname:        billingAddr.companyName || '',
               firstname,
               lastname,
               email,
               phone,
-              address1: deliveryAddress.address_line_1 || billingAddress.address_line_1 || '',
-              address2: deliveryAddress.address_line_2 || billingAddress.address_line_2 || '',
-              town:     deliveryAddress.town || billingAddress.town || '',
-              county:   deliveryAddress.county || billingAddress.county || '',
-              postcode: deliveryAddress.postcode || billingAddress.postcode || '',
-              country:  deliveryAddress.country || billingAddress.country || 'United Kingdom',
+              address1:           shippingAddr.addressLine1 || billingAddr.addressLine1 || '',
+              address2:           shippingAddr.addressLine2 || billingAddr.addressLine2 || '',
+              address3:           shippingAddr.addressLine3 || billingAddr.addressLine3 || '',
+              town:               shippingAddr.city || billingAddr.city || '',
+              county:             shippingAddr.province || billingAddr.province || '',
+              postcode:           shippingAddr.postcode || billingAddr.postcode || '',
+              country:            shippingAddr.country || billingAddr.country || 'United Kingdom',
               clienttype,
-              iswholesale: false,
+              iswholesale:        false,
               isreducedwholesale: false,
-              isactive: true,
+              isactive:           true,
             })
             .select('clientid')
             .single()
@@ -139,44 +170,35 @@ export async function POST() {
       }
 
       if (!clientid) {
-        errors.push(`No client for order ${externalRef} — skipping`)
+        errors.push(`No email/client for order ${externalRef} — skipping`)
         continue
       }
-
-      // Calculate order totals
-      const subtotal   = parseFloat(swOrder.subtotal || swOrder.sub_total || '0') || 0
-      const shipping   = parseFloat(swOrder.shipping_cost || swOrder.delivery_cost || '0') || 0
-      const totalvat   = parseFloat(swOrder.vat || swOrder.tax || '0') || 0
-      const grandtotal = parseFloat(swOrder.total || swOrder.grand_total || '0') || 0
-
-      // Capture shipping method name from Shopwired
-      const swShippingMethod = swOrder.shipping_method || swOrder.delivery_method || swOrder.shippingMethod || null
 
       // Create order header
       const { data: newOrder, error: orderErr } = await supabase
         .from('tblorders')
         .insert({
           clientid,
-          orderdate:        swOrder.date || swOrder.created_at || new Date().toISOString(),
+          orderdate:        swOrder.created || new Date().toISOString(),
           ordersource:      isEbay ? 'eBay' : 'Shopwired',
           externalorderref: externalRef,
           status:           'New',
-          isebay,
+          isebay:           isEbay,
           isblindship:      false,
           shiptoname,
-          shiptoaddress1:   deliveryAddress.address_line_1 || '',
-          shiptoaddress2:   deliveryAddress.address_line_2 || '',
-          shiptoaddress3:   deliveryAddress.address_line_3 || '',
-          shiptotown:       deliveryAddress.town || '',
-          shiptocounty:     deliveryAddress.county || '',
-          shiptopostcode:   deliveryAddress.postcode || '',
-          shiptocountry:    deliveryAddress.country || 'United Kingdom',
+          shiptoaddress1:   shippingAddr.addressLine1 || '',
+          shiptoaddress2:   shippingAddr.addressLine2 || '',
+          shiptoaddress3:   shippingAddr.addressLine3 || '',
+          shiptotown:       shippingAddr.city || '',
+          shiptocounty:     shippingAddr.province || '',
+          shiptopostcode:   shippingAddr.postcode || '',
+          shiptocountry:    shippingAddr.country || 'United Kingdom',
           subtotal,
           shippingcost:     isEbay ? 0 : shipping,
           shippingmethod:   swShippingMethod,
           totalvat,
           ordertotal:       grandtotal,
-          notes:            swOrder.comments || swOrder.customer_comments || '',
+          notes:            swOrder.comments || '',
         })
         .select('orderid, ordernumber')
         .single()
@@ -186,31 +208,40 @@ export async function POST() {
         continue
       }
 
+      // Generate JKS order number
+      const orderNum = `JKS-${String(newOrder.orderid).padStart(5, '25769')}-${isEbay ? '400' : '100'}`
+      await supabase
+        .from('tblorders')
+        .update({ 
+          ordernumber: orderNum,
+          externalreference: String(swOrder.reference || ''),
+        })
+        .eq('orderid', newOrder.orderid)
+
       // Process order lines
-      const items = swOrder.products || swOrder.items || swOrder.order_products || []
+      const items = swOrder.products || []
       let lineError = false
 
       for (const item of items) {
-        const websiteSku = item.sku || item.product_sku || ''
-        const itemName   = item.name || item.product_name || websiteSku
-        let   qty        = parseInt(item.quantity || item.qty || '1') || 1
-        const unitPrice  = parseFloat(item.price || item.unit_price || '0') || 0
+        const websiteSku = item.sku || ''
+        const itemName   = item.name || websiteSku
+        let   qty        = parseInt(item.quantity || '1') || 1
+        const unitPrice  = parseFloat(item.price || '0') || 0
 
         // Translate website SKU to real SKU
         const realSku = skuMap.get(websiteSku) || websiteSku
+        console.log(`Item: websiteSku=${websiteSku} → realSku=${realSku}`)
 
-        // Handle W suffix — strip it and multiply qty by packquantity
+        // Handle W suffix
         let lookupSku = realSku
-        let packMultiplier = 1
-
         if (realSku.endsWith('-W')) {
           lookupSku = realSku.slice(0, -2)
           const product = productBySku.get(lookupSku)
-          packMultiplier = product?.packquantity || 1
-          qty = qty * packMultiplier
+          qty = qty * (product?.packquantity || 1)
         }
 
         const product = productBySku.get(lookupSku)
+        console.log(`  lookupSku=${lookupSku} → productid=${product?.productid} name=${product?.productname}`)
 
         const { error: lineErr } = await supabase
           .from('tblorderlines')
@@ -218,7 +249,7 @@ export async function POST() {
             orderid:         newOrder.orderid,
             productid:       product?.productid || null,
             sku:             lookupSku,
-            productname:     itemName,
+            productname:     product?.productname || itemName,
             quantityordered: qty,
             unitprice:       unitPrice,
             linetotal:       unitPrice * qty,
@@ -231,15 +262,14 @@ export async function POST() {
         }
       }
 
-      if (!lineError) {
-        imported++
-      }
+      if (!lineError) imported++
     }
 
     return NextResponse.json({
       success: true,
       imported,
       skipped,
+      total: allOrders.length,
       errors: errors.length > 0 ? errors : undefined,
     })
 

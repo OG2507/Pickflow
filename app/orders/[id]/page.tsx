@@ -36,6 +36,9 @@ type Order = {
   createdby: string | null
   isebay: boolean
   cadorderid: string | null
+  externalorderref: string | null
+  externalreference: string | null
+  royalmailexportedat: string | null
 }
 
 type OrderLine = {
@@ -83,6 +86,63 @@ const WEBSITE_SOURCES = ['Shopwired']
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(price)
+
+function ClientSummary({ clientid, router }: { clientid: number, router: any }) {
+  const [client, setClient] = useState<any>(null)
+
+  useEffect(() => {
+    supabase
+      .from('tblclients')
+      .select('clientid, clientcode, companyname, firstname, lastname, email, phone, clienttype')
+      .eq('clientid', clientid)
+      .single()
+      .then(({ data }) => setClient(data))
+  }, [clientid])
+
+  if (!client) return <div className="pf-loading">Loading…</div>
+
+  const name = client.companyname ||
+    [client.firstname, client.lastname].filter(Boolean).join(' ') || '—'
+
+  return (
+    <div>
+      <div className="pf-meta-row">
+        <span>Name</span>
+        <span
+          className="pf-link"
+          style={{ cursor: 'pointer', color: 'var(--pf-brand)' }}
+          onClick={() => router.push(`/clients/${client.clientid}`)}
+        >
+          {name}
+        </span>
+      </div>
+      {client.clientcode && (
+        <div className="pf-meta-row">
+          <span>Code</span>
+          <span>{client.clientcode}</span>
+        </div>
+      )}
+      {client.clienttype && (
+        <div className="pf-meta-row">
+          <span>Type</span>
+          <span>{client.clienttype}</span>
+        </div>
+      )}
+      {client.email && (
+        <div className="pf-meta-row">
+          <span>Email</span>
+          <span>{client.email}</span>
+        </div>
+      )}
+      {client.phone && (
+        <div className="pf-meta-row">
+          <span>Phone</span>
+          <span>{client.phone}</span>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const VAT_RATE = 0.20 // pulled from AppSettings in a real implementation
 
@@ -444,22 +504,26 @@ export default function OrderDetailPage() {
   const [pickError, setPickError] = useState<string | null>(null)
 
   // ── Print Order ────────────────────────────────────────────────
+  const exportToRoyalMail = async () => {
+    const res = await fetch(`/api/royalmail-export?orderid=${order!.orderid}`)
+    if (!res.ok) {
+      const data = await res.json()
+      setError(`Royal Mail export failed: ${data.error}`)
+      return
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `royalmail-${new Date().toISOString().slice(0, 19).replace('T', '-').replace(/:/g, '')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    // Refresh order to show export timestamp
+    await fetchOrder()
+  }
+
   const printOrder = async () => {
     if (!order) return
-
-    // Push to Click & Drop (skip eBay and collection orders)
-    if (!order.isebay) {
-      const cadRes = await fetch('/api/clickanddrop', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderid: order.orderid }),
-      })
-      const cadData = await cadRes.json()
-      if (!cadData.success && !cadData.error?.includes('label not required')) {
-        // Non-fatal — warn but continue with printing
-        console.warn('Click and Drop push failed:', cadData.error)
-      }
-    }
 
     // Fetch picking data for each line
     type PickLine = {
@@ -513,13 +577,15 @@ export default function OrderDetailPage() {
       const { data: stockLevels } = await supabase
         .from('tblstocklevels')
         .select(`stocklevelid, quantityonhand, pickpriority, bagsize, locationid,
-          tbllocations (locationid, locationcode, locationname, locationtype, isactive)`)
+          tbllocations (locationid, locationcode, locationname, locationtype, pickpriority, isactive)`)
         .eq('productid', productid)
         .order('pickpriority')
 
       const levels = (stockLevels || []).filter((s: any) => s.tbllocations?.isactive)
-      const binLevel = levels.find((s: any) => s.pickpriority === 0)
-      const overflowLevels = levels.filter((s: any) => s.pickpriority > 0 && s.quantityonhand > 0)
+      const binLevel = levels.find((s: any) => s.tbllocations?.locationtype === 'Picking Bin')
+      const overflowLevels = levels
+        .filter((s: any) => s.tbllocations?.locationtype !== 'Picking Bin' && s.quantityonhand > 0)
+        .sort((a: any, b: any) => (a.tbllocations?.pickpriority || 9999) - (b.tbllocations?.pickpriority || 9999))
 
       pickLines.push({
         sku,
@@ -539,7 +605,20 @@ export default function OrderDetailPage() {
     }
 
     for (const line of lines) {
-      if (!line.productid) continue
+      if (!line.productid) {
+        // Still add to pick lines with no location info — shows on picking list as manual check
+        pickLines.push({
+          sku: line.sku || '',
+          productname: line.productname || '',
+          quantityordered: line.quantityordered,
+          productid: null,
+          pickingbintracked: false,
+          binlocation: null,
+          binqty: 0,
+          overflowlocations: [],
+        })
+        continue
+      }
       await buildPickLinesForProduct(
         line.productid,
         line.sku || '',
@@ -636,23 +715,24 @@ export default function OrderDetailPage() {
 
       } else {
         // Mode 1 — bin not tracked
-        if (pl.overflowlocations.length === 0) {
+        if (pl.binlocation && pl.overflowlocations.length === 0) {
+          instructions.push(`>> Take ${qty} from bin ${pl.binlocation}`)
+        } else if (!pl.binlocation && pl.overflowlocations.length === 0) {
           instructions.push(`!  No stock locations found — check manually`)
         } else {
           const ovfLocation = pl.overflowlocations[0]
           const bagsize = ovfLocation.bagsize || 1
           const binRef = pl.binlocation || 'bin'
 
-          instructions.push(`>> Check ${binRef} — take ${qty} if available`)
+          instructions.push(`>> ${binRef} — take ${qty} if available`)
           if (bagsize === 1) {
-            instructions.push(`>> If short, take remainder from ${ovfLocation.locationcode} (${ovfLocation.quantityonhand} available)`)
+            instructions.push(`>> Overflow — ${ovfLocation.locationcode}: take ${remaining} (${ovfLocation.quantityonhand} available)`)
             instructions.push(`+  Fill ${binRef} with as many as possible from ${ovfLocation.locationcode}`)
           } else {
-            instructions.push(`>> If short, take 1 bag (${bagsize}) from ${ovfLocation.locationcode} (${ovfLocation.quantityonhand} available)`)
-            instructions.push(`+  Put surplus from bag into ${binRef}`)
+            instructions.push(`>> Overflow — ${ovfLocation.locationcode}: take 1 bag (${bagsize} units)`)
+            instructions.push(`+  Take what you need from the bag, put the remainder into bin (${binRef})`)
           }
-          instructions.push(`*  Count ${binRef} and ${ovfLocation.locationcode} — update both in system`)
-          instructions.push(`   (Once updated, this product tracks automatically)`)
+          instructions.push(`*  Count quantity in ${binRef} and update the system`)
 
           if (pl.overflowlocations.length > 1) {
             instructions.push(`   Other overflow: ${pl.overflowlocations.slice(1).map(o => `${o.locationcode} (${o.quantityonhand})`).join(', ')}`)
@@ -671,6 +751,22 @@ export default function OrderDetailPage() {
     })
 
     // Build single combined document — picking list + packing slip on separate pages
+
+    // Load company details from app settings
+    const { data: settingsData } = await supabase
+      .from('tblappsettings')
+      .select('settingkey, settingvalue')
+      .in('settingkey', ['CompanyName', 'CompanyAddress', 'CompanyPhone', 'CompanyEmail'])
+
+    const settings: Record<string, string> = {}
+    for (const s of settingsData || []) {
+      settings[s.settingkey] = s.settingvalue || ''
+    }
+
+    const companyName    = settings['CompanyName'] || 'JKs Bargains Ltd'
+    const companyAddress = (settings['CompanyAddress'] || '').replace(/\n/g, '<br>')
+    const companyPhone   = settings['CompanyPhone'] || ''
+    const companyEmail   = settings['CompanyEmail'] || ''
 
     const deliveryName = [order.shiptoname].filter(Boolean).join('')
 
@@ -695,8 +791,8 @@ export default function OrderDetailPage() {
 
     const companyBlock = order.isblindship ? '' : `
       <div style="font-size:9pt; margin-bottom:8pt">
-        <strong>Oceanus Group Ltd</strong><br>
-        [Your address here]
+        <strong>${companyName}</strong><br>
+        ${companyAddress}${companyPhone ? `<br>${companyPhone}` : ''}${companyEmail ? `<br>${companyEmail}` : ''}
       </div>
     `
 
@@ -724,7 +820,7 @@ export default function OrderDetailPage() {
         <div>
           <h1>Picking List</h1>
           <div class="meta">
-            <strong>Order:</strong> ${order.ordernumber}<br>
+            <strong>Order:</strong> ${order.ordernumber || '—'}${order.externalreference ? ` (SW: ${order.externalreference})` : ''}<br>
             <strong>Date:</strong> ${new Date().toLocaleDateString('en-GB')}<br>
             <strong>Source:</strong> ${order.ordersource}
           </div>
@@ -761,7 +857,7 @@ export default function OrderDetailPage() {
         <div>
           <h1>Packing Slip</h1>
           <div class="meta">
-            <strong>Order:</strong> ${order.ordernumber}<br>
+            <strong>Order:</strong> ${order.ordernumber || '—'}${order.externalreference ? ` (SW: ${order.externalreference})` : ''}<br>
             <strong>Date:</strong> ${new Date().toLocaleDateString('en-GB')}
           </div>
         </div>
@@ -1031,6 +1127,17 @@ export default function OrderDetailPage() {
             </a>
           )}
 
+          {/* Royal Mail CSV — wholesale Printed orders not yet exported */}
+          {order.status === 'Printed' &&
+           order.ordersource !== 'Shopwired' && order.ordersource !== 'eBay' && (
+            <button
+              className="pf-btn-secondary"
+              onClick={exportToRoyalMail}
+            >
+              ↓ Royal Mail CSV
+            </button>
+          )}
+
           {/* Cancel */}
           {!isCancelled && !isCompleted && (
             <button className="pf-btn-deactivate" onClick={cancelOrder}>
@@ -1231,37 +1338,12 @@ export default function OrderDetailPage() {
         {/* RIGHT — Order details */}
         <div className="pf-order-details-col">
 
-          {/* Shipping */}
+          {/* Customer */}
           <div className="pf-card">
-            <h2 className="pf-card-title">Shipping</h2>
-
-            {shippingRates.length === 0 ? (
-              <div className="pf-stock-empty">No shipping methods available for this weight.</div>
-            ) : (
-              <div className="pf-shipping-options">
-                {shippingRates.map((rate) => (
-                  <div
-                    key={rate.shippingrateid}
-                    className={`pf-shipping-option ${order.shippingmethod === rate.methodname ? 'pf-shipping-selected' : ''}`}
-                    onClick={() => !isCancelled && !isCompleted && selectShipping(rate.methodname, rate.price)}
-                  >
-                    <span className="pf-shipping-name">{rate.methodname}</span>
-                    <span className="pf-shipping-price">{formatPrice(rate.price)}</span>
-                  </div>
-                ))}
-              </div>
+            <h2 className="pf-card-title">Customer</h2>
+            {order.clientid && (
+              <ClientSummary clientid={order.clientid} router={router} />
             )}
-
-            <div className="pf-field" style={{ marginTop: '0.875rem' }}>
-              <label className="pf-label">Tracking Number</label>
-              <input
-                className="pf-input pf-input-mono"
-                name="trackingnumber"
-                value={order.trackingnumber || ''}
-                onChange={handleOrderChange}
-                placeholder="Add after despatch…"
-              />
-            </div>
           </div>
 
           {/* Delivery address */}
@@ -1313,6 +1395,39 @@ export default function OrderDetailPage() {
                   <small>Use unbranded packing slip</small>
                 </span>
               </label>
+            </div>
+          </div>
+
+          {/* Shipping */}
+          <div className="pf-card">
+            <h2 className="pf-card-title">Shipping</h2>
+
+            {shippingRates.length === 0 ? (
+              <div className="pf-stock-empty">No shipping methods available for this weight.</div>
+            ) : (
+              <div className="pf-shipping-options">
+                {shippingRates.map((rate) => (
+                  <div
+                    key={rate.shippingrateid}
+                    className={`pf-shipping-option ${order.shippingmethod === rate.methodname ? 'pf-shipping-selected' : ''}`}
+                    onClick={() => !isCancelled && !isCompleted && selectShipping(rate.methodname, rate.price)}
+                  >
+                    <span className="pf-shipping-name">{rate.methodname}</span>
+                    <span className="pf-shipping-price">{formatPrice(rate.price)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="pf-field" style={{ marginTop: '0.875rem' }}>
+              <label className="pf-label">Tracking Number</label>
+              <input
+                className="pf-input pf-input-mono"
+                name="trackingnumber"
+                value={order.trackingnumber || ''}
+                onChange={handleOrderChange}
+                placeholder="Add after despatch…"
+              />
             </div>
           </div>
 

@@ -19,6 +19,7 @@ type OrderRow = {
   companyname: string | null
   firstname: string | null
   lastname: string | null
+  isebay: boolean
   selected: boolean
 }
 
@@ -35,7 +36,7 @@ const STATUS_COLOURS: Record<string, string> = {
 
 const ALL_STATUSES = ['New', 'Printed', 'Post Printed', 'Picking', 'Dispatched', 'Invoiced', 'Completed', 'Cancelled']
 const ORDER_SOURCES = ['Shopwired', 'Email', 'Phone', 'Letter']
-const PRINTABLE_STATUSES = ['New']
+const PRINTABLE_STATUSES = ['New', 'Printed', 'Picking']
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(price)
@@ -91,11 +92,13 @@ async function buildOrderDocuments(orderid: number): Promise<string> {
     const { data: stockLevels } = await supabase
       .from('tblstocklevels')
       .select(`stocklevelid, quantityonhand, pickpriority, bagsize, locationid,
-        tbllocations (locationid, locationcode, locationname, locationtype, isactive)`)
+        tbllocations (locationid, locationcode, locationname, locationtype, pickpriority, isactive)`)
       .eq('productid', productid).order('pickpriority')
     const levels = (stockLevels || []).filter((s: any) => s.tbllocations?.isactive)
-    const binLevel = levels.find((s: any) => s.pickpriority === 0)
-    const overflowLevels = levels.filter((s: any) => s.pickpriority > 0 && s.quantityonhand > 0)
+    const binLevel = levels.find((s: any) => s.tbllocations?.locationtype === 'Picking Bin')
+    const overflowLevels = levels
+      .filter((s: any) => s.tbllocations?.locationtype !== 'Picking Bin' && s.quantityonhand > 0)
+      .sort((a: any, b: any) => (a.tbllocations?.pickpriority || 9999) - (b.tbllocations?.pickpriority || 9999))
     pickLines.push({
       sku, productname, quantityordered, productid,
       pickingbintracked: product?.pickingbintracked || false,
@@ -147,21 +150,25 @@ async function buildOrderDocuments(orderid: number): Promise<string> {
         }
       }
     } else {
-      if (pl.overflowlocations.length === 0) {
+      if (pl.binlocation && pl.overflowlocations.length === 0) {
+        instructions.push(`>> Take ${qty} from bin ${pl.binlocation}`)
+      } else if (!pl.binlocation && pl.overflowlocations.length === 0) {
         instructions.push(`⚠ No stock locations found — check manually`)
       } else {
         const bagsize = pl.overflowlocations[0]?.bagsize || 1
         const ovfLocation = pl.overflowlocations[0]
-        const binRef = pl.binlocation ? ` (${pl.binlocation})` : ''
-        instructions.push(`1. Check picking bin${binRef} — take up to ${qty} if available`)
-        instructions.push(`2. If bin doesn't have enough, go to ${ovfLocation.locationcode}: take 1 bag (${bagsize} units)`)
-        instructions.push(`3. Take what you need from the bag, put the remainder into bin${binRef}`)
-        instructions.push(`4. Count what is now in bin${binRef} and update the system`)
-        instructions.push(`   ↳ Once updated, this product will be tracked automatically`)
+        const binRef = pl.binlocation || 'bin'
+        instructions.push(`>> ${binRef} — take ${qty} if available`)
+        if (bagsize === 1) {
+          instructions.push(`>> Overflow — ${ovfLocation.locationcode}: take ${qty} (${ovfLocation.quantityonhand} available)`)
+          instructions.push(`+  Fill ${binRef} with as many as possible from ${ovfLocation.locationcode}`)
+        } else {
+          instructions.push(`>> Overflow — ${ovfLocation.locationcode}: take 1 bag (${bagsize} units)`)
+          instructions.push(`+  Take what you need from the bag, put the remainder into bin (${binRef})`)
+        }
+        instructions.push(`*  Count quantity in ${binRef} and update the system`)
         if (pl.overflowlocations.length > 1) {
-          for (const ovf of pl.overflowlocations.slice(1)) {
-            instructions.push(`  ${ovf.locationcode}: ${ovf.quantityonhand} units`)
-          }
+          instructions.push(`   Other overflow: ${pl.overflowlocations.slice(1).map(o => `${o.locationcode} (${o.quantityonhand})`).join(', ')}`)
         }
       }
     }
@@ -234,11 +241,46 @@ export default function OrdersPage() {
   const [sourceFilter, setSourceFilter] = useState('')
   const [pendingQFCount, setPendingQFCount] = useState<number | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [pendingRMCount, setPendingRMCount] = useState<number | null>(null)
+  const [exportingRM, setExportingRM] = useState(false)
 
   const checkPendingExports = async () => {
     const res = await fetch('/api/quickfile-bulk-export', { method: 'POST' })
     const data = await res.json()
     setPendingQFCount(data.count || 0)
+  }
+
+  const checkPendingRM = async () => {
+    const res = await fetch('/api/royalmail-export', { method: 'POST' })
+    const data = await res.json()
+    setPendingRMCount(data.count || 0)
+  }
+
+  const exportToRoyalMail = async () => {
+    if (!pendingRMCount) return
+    setExportingRM(true)
+    try {
+      const res = await fetch('/api/royalmail-export')
+      if (!res.ok) {
+        const data = await res.json()
+        setSyncResult(`Royal Mail export failed: ${data.error}`)
+        setExportingRM(false)
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `royalmail-${new Date().toISOString().slice(0, 19).replace('T', '-').replace(/:/g, '')}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      setSyncResult(`Exported ${pendingRMCount} order${pendingRMCount !== 1 ? 's' : ''} to Royal Mail CSV`)
+      setPendingRMCount(0)
+      await fetchOrders()
+    } catch (err: any) {
+      setSyncResult(`Royal Mail export failed: ${err.message}`)
+    }
+    setExportingRM(false)
   }
 
   const exportToQuickFile = async () => {
@@ -290,7 +332,7 @@ export default function OrdersPage() {
     setLoading(true)
     let query = supabase
       .from('tblorders')
-      .select(`orderid, ordernumber, orderdate, ordersource, status,
+      .select(`orderid, ordernumber, orderdate, ordersource, status, isebay,
         shiptoname, shiptopostcode, subtotal, shippingcost, totalweightg,
         clientid, tblclients (companyname, firstname, lastname)`)
       .order('orderdate', { ascending: false })
@@ -302,7 +344,8 @@ export default function OrdersPage() {
     const { data } = await query
     setOrders((data || []).map((r: any) => ({
       orderid: r.orderid, ordernumber: r.ordernumber, orderdate: r.orderdate,
-      ordersource: r.ordersource, status: r.status, shiptoname: r.shiptoname,
+      ordersource: r.ordersource, status: r.status, isebay: r.isebay || false,
+      shiptoname: r.shiptoname,
       shiptopostcode: r.shiptopostcode, subtotal: r.subtotal, shippingcost: r.shippingcost,
       totalweightg: r.totalweightg, clientid: r.clientid,
       companyname: r.tblclients?.companyname, firstname: r.tblclients?.firstname,
@@ -313,6 +356,7 @@ export default function OrdersPage() {
 
   useEffect(() => { fetchOrders() }, [fetchOrders])
   useEffect(() => { checkPendingExports() }, [])
+  useEffect(() => { checkPendingRM() }, [])
 
   const clientName = (o: OrderRow) =>
     o.companyname?.trim() || `${o.firstname || ''} ${o.lastname || ''}`.trim() || '—'
@@ -373,6 +417,15 @@ export default function OrdersPage() {
     await fetchOrders()
   }
 
+  const bulkMoveToPicking = async () => {
+    const printedOrders = selectedOrders.filter(o => o.status === 'Printed')
+    if (printedOrders.length === 0) return
+    for (const order of printedOrders) {
+      await supabase.from('tblorders').update({ status: 'Picking' }).eq('orderid', order.orderid)
+    }
+    await fetchOrders()
+  }
+
   return (
     <div className="pf-page">
       <div className="pf-page-header">
@@ -392,12 +445,22 @@ export default function OrdersPage() {
               {exporting ? 'Exporting…' : `↓ QuickFile CSV (${pendingQFCount})`}
             </button>
           )}
+          {pendingRMCount !== null && pendingRMCount > 0 && (
+            <button className="pf-btn-secondary" onClick={exportToRoyalMail} disabled={exportingRM}>
+              {exportingRM ? 'Exporting…' : `↓ Royal Mail CSV (${pendingRMCount})`}
+            </button>
+          )}
           {selectedOrders.length > 0 && (
             <>
               <span className="pf-selected-count">{selectedOrders.length} selected</span>
               <button className="pf-btn-secondary" onClick={bulkPrint} disabled={printing}>
                 {printing ? 'Building…' : `🖨 Print ${selectedOrders.length} Order${selectedOrders.length > 1 ? 's' : ''}`}
               </button>
+              {selectedOrders.some(o => o.status === 'Printed') && (
+                <button className="pf-btn-secondary" onClick={bulkMoveToPicking}>
+                  → Move to Picking
+                </button>
+              )}
             </>
           )}
           <button className="pf-btn-primary" onClick={() => router.push('/orders/new')}>

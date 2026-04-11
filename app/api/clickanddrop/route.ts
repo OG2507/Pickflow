@@ -77,37 +77,31 @@ export async function POST(request: Request) {
     // Weight — minimum 1g
     const weightGrams = Math.max(order.totalweightg || 1, 1)
 
-    // Build Click & Drop order payload
+    // Build minimal Click & Drop order payload for testing
     const cadPayload = {
-      orderReference:       order.ordernumber,
+      orderReference: order.ordernumber || String(order.orderid),
       recipient: {
-        name:             recipientName,
-        addressLine1:     order.shiptoaddress1 || '',
-        addressLine2:     order.shiptoaddress2 || '',
-        addressLine3:     order.shiptoaddress3 || '',
-        city:             order.shiptotown || '',
-        county:           order.shiptocounty || '',
-        postcode:         order.shiptopostcode || '',
-        countryCode:      order.shiptocountry === 'United Kingdom' ? 'GB' : order.shiptocountry || 'GB',
-        phoneNumber:      client?.phone || '',
-        emailAddress:     client?.email || '',
+        name:         recipientName,
+        addressLine1: order.shiptoaddress1 || '',
+        city:         order.shiptotown || '',
+        postcode:     order.shiptopostcode || '',
+        countryCode:  'GB',
       },
-      sender: {
-        tradingName:      TRADING_NAME,
-      },
-      orderDate:            order.orderdate || new Date().toISOString(),
-      subtotal:             order.subtotal || 0,
-      shippingCostCharged:  order.shippingcost || 0,
-      total:                order.ordertotal || 0,
-      weightInGrams:        weightGrams,
-      serviceCode,
+      packages: [
+        {
+          weightInGrams:           Math.max(order.totalweightg || 100, 1),
+          packageFormatIdentifier: 'LargeLetter',
+        }
+      ],
     }
 
-    // Push to Click & Drop
-    const cadRes = await fetch(`${CAD_BASE}/orders`, {
+    console.log('C&D payload:', JSON.stringify(cadPayload, null, 2))
+
+    // Push to Click & Drop — bare array of orders
+    const cadRes = await fetch(`${CAD_BASE}/Orders`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${CAD_KEY}`,
+        'Authorization': CAD_KEY,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
