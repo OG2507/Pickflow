@@ -146,7 +146,7 @@ export default function PurchaseOrderDetailPage() {
     const { data } = await supabase
       .from('tbllocations')
       .select('locationid, locationcode, locationname')
-      .eq('locationtype', 'Goods In')
+      .in('locationtype', ['Goods In', 'Overflow'])
       .eq('isactive', true)
       .order('locationcode')
     setGoodsInLocations(data || [])
