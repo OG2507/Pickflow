@@ -34,12 +34,12 @@ export async function GET() {
       return NextResponse.json({ error: 'No orders pending export' }, { status: 404 })
     }
 
-    // Fetch all order lines for these orders
+    // Fetch all order lines for these orders — include quantitypicked
     const orderIds = orders.map((o: any) => o.orderid)
     const { data: allLines } = await supabase
       .from('tblorderlines')
       .select(`orderid, orderlineid, sku, productname, productid,
-        quantityordered, unitprice, linetotal, vatstatus`)
+        quantityordered, quantitypicked, unitprice, linetotal, vatstatus`)
       .in('orderid', orderIds)
       .order('orderid')
       .order('orderlineid')
@@ -97,29 +97,50 @@ export async function GET() {
           }).replace(',', '')
         : ''
 
+      const lines = linesByOrder.get(order.orderid) || []
+
+      // Build out-of-stock note covering zero and partial lines
+      const outOfStockParts: string[] = []
+      for (const line of lines) {
+        const picked = line.quantitypicked ?? line.quantityordered
+        const ordered = line.quantityordered
+        if (picked === 0) {
+          outOfStockParts.push(`${line.sku} ordered ${ordered} picked 0`)
+        } else if (picked < ordered) {
+          outOfStockParts.push(`${line.sku} ordered ${ordered} picked ${picked}`)
+        }
+      }
+      const outOfStockNote = outOfStockParts.length > 0
+        ? `OUT OF STOCK: ${outOfStockParts.join(', ')}`
+        : ''
+
       const trackingNote = [
         order.shippingmethod || '',
         order.trackingnumber ? `- ${order.trackingnumber}` : '',
         clientName ? `- ${clientName}` : '',
+        outOfStockNote || '',
       ].filter(Boolean).join(' ')
 
-      const lines = linesByOrder.get(order.orderid) || []
-
-      // Product lines
+      // Product lines — skip zero-picked lines (QuickFile rejects zero qty rows)
       for (const line of lines) {
+        const picked = line.quantitypicked ?? line.quantityordered
+        if (picked === 0) continue
+
         const pricingCode = line.productid && pricingMap.has(line.productid)
           ? `Price Code ${pricingMap.get(line.productid)}`
           : ''
         const vatRate    = line.vatstatus === 'Standard' ? '20' : '0'
         const description = `${line.sku} / ${line.productname}`
-        const grossAmount = (line.linetotal * (line.vatstatus === 'Standard' ? 1.2 : 1)).toFixed(2)
+        // Recalculate line total based on actual picked quantity
+        const netAmount = picked * line.unitprice
+        const grossAmount = (netAmount * (line.vatstatus === 'Standard' ? 1.2 : 1)).toFixed(2)
 
         rows.push([
           issueDate, clientName, description, grossAmount,
           order.ordernumber || '', vatRate, pricingCode,
-          String(line.quantityordered), contactFirst, contactLast, email,
+          String(picked), contactFirst, contactLast, email,
           trackingNote, companyName, clientDelivery, clientBilling,
-          accountRef, contactFirst, '', '',
+          accountRef, contactFirst, '', outOfStockNote,
         ])
       }
 
@@ -131,7 +152,7 @@ export async function GET() {
           order.ordernumber || '', '20', `Price Code ${order.shippingmethod}`,
           '1', contactFirst, contactLast, email,
           trackingNote, companyName, clientDelivery, clientBilling,
-          accountRef, contactFirst, '', '',
+          accountRef, contactFirst, '', outOfStockNote,
         ])
       }
     }

@@ -897,19 +897,21 @@ export default function OrderDetailPage() {
     setConfirmingPick(true)
     setPickError(null)
 
-    // Helper to execute stock movements for a single product
+    // Helper to execute stock movements for a single product.
+    // Returns the actual quantity picked (may be less than quantityordered if stock is short).
     const executePickMovements = async (
       productid: number,
       quantityordered: number,
       ordernumber: string
-    ) => {
+    ): Promise<number> => {
       const { data: product } = await supabase
         .from('tblproducts')
         .select('pickingbintracked, bagsizedefault, isbundle')
         .eq('productid', productid)
         .single()
 
-      // If bundle — execute movements for each component
+      // If bundle — execute movements for each component.
+      // Return quantityordered as bundles don't have their own stock level.
       if (product?.isbundle) {
         const { data: components } = await supabase
           .from('tblproductcomponents')
@@ -919,10 +921,11 @@ export default function OrderDetailPage() {
         for (const comp of components || []) {
           await executePickMovements(comp.childproductid, quantityordered * comp.quantity, ordernumber)
         }
-        return
+        return quantityordered
       }
 
-      if (!product?.pickingbintracked) return // Mode 1 — no automatic movements
+      // Untracked — no automatic movements, treat as fully picked
+      if (!product?.pickingbintracked) return quantityordered
 
       const productBagsize = product?.bagsizedefault || 1
 
@@ -932,7 +935,7 @@ export default function OrderDetailPage() {
         .eq('productid', productid)
         .gt('quantityonhand', 0)
 
-      if (!stockLevelsRaw) return
+      if (!stockLevelsRaw) return 0
 
       const stockLevels = stockLevelsRaw.sort((a: any, b: any) => (a.tbllocations?.pickpriority || 9999) - (b.tbllocations?.pickpriority || 9999))
 
@@ -990,18 +993,18 @@ export default function OrderDetailPage() {
           remaining -= partial
         }
       }
+
+      // Return how many were actually picked
+      return quantityordered - remaining
     }
 
     for (const line of lines) {
       if (!line.productid) continue
-      await executePickMovements(line.productid, line.quantityordered, order.ordernumber)
-    }
-
-    // Update all order lines as picked
-    for (const line of lines) {
+      const actualPicked = await executePickMovements(line.productid, line.quantityordered, order.ordernumber)
+      // Write the actual quantity picked — may be less than ordered if stock was short
       await supabase
         .from('tblorderlines')
-        .update({ quantitypicked: line.quantityordered, status: 'Picked' })
+        .update({ quantitypicked: actualPicked, status: 'Picked' })
         .eq('orderlineid', line.orderlineid)
     }
 
