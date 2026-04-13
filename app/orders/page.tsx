@@ -41,14 +41,110 @@ const PRINTABLE_STATUSES = ['New', 'Printed', 'Picking']
 const formatPrice = (price: number) =>
   new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(price)
 
-async function buildOrderDocuments(orderid: number): Promise<string> {
-  const { data: order } = await supabase
-    .from('tblorders').select('*').eq('orderid', orderid).single()
-  if (!order) return ''
+// ── Bulk data loader ──────────────────────────────────────────────────────────
+// Fetches everything needed to print multiple orders in a fixed number of
+// queries (6 total regardless of order count), then returns a lookup map so
+// renderOrderDocuments() can build HTML purely from in-memory data.
 
+async function loadBulkPrintData(orderids: number[]) {
+  const ids = orderids
+
+  // 1. App settings (company details for packing slip header)
+  const { data: settingsData } = await supabase
+    .from('tblappsettings')
+    .select('settingkey, settingvalue')
+    .in('settingkey', ['CompanyName', 'CompanyAddress', 'CompanyPhone', 'CompanyEmail'])
+  const settings: Record<string, string> = {}
+  for (const s of settingsData || []) settings[s.settingkey] = s.settingvalue || ''
+
+  // 2. Orders
+  const { data: orders } = await supabase
+    .from('tblorders').select('*').in('orderid', ids)
+  const orderMap = new Map<number, any>((orders || []).map((o: any) => [o.orderid, o]))
+
+  // 2. Order lines
   const { data: linesData } = await supabase
-    .from('tblorderlines').select('*').eq('orderid', orderid).order('orderlineid')
-  const lines = linesData || []
+    .from('tblorderlines').select('*').in('orderid', ids).order('orderlineid')
+  const linesByOrder = new Map<number, any[]>()
+  for (const l of linesData || []) {
+    if (!linesByOrder.has(l.orderid)) linesByOrder.set(l.orderid, [])
+    linesByOrder.get(l.orderid)!.push(l)
+  }
+
+  // Collect all product IDs referenced across all orders
+  const allProductIds = [...new Set((linesData || []).map((l: any) => l.productid).filter(Boolean))]
+
+  // 3. Products
+  const { data: productsData } = await supabase
+    .from('tblproducts')
+    .select('productid, sku, productname, pickingbintracked, bagsizedefault, isbundle')
+    .in('productid', allProductIds)
+  const productMap = new Map<number, any>((productsData || []).map((p: any) => [p.productid, p]))
+
+  // 4. Bundle components (only for bundle products)
+  const bundleIds = (productsData || []).filter((p: any) => p.isbundle).map((p: any) => p.productid)
+  let componentMap = new Map<number, any[]>() // parentproductid → components
+  if (bundleIds.length > 0) {
+    const { data: compsData } = await supabase
+      .from('tblproductcomponents')
+      .select(`quantity, parentproductid, tblproducts!childproductid (productid, sku, productname)`)
+      .in('parentproductid', bundleIds)
+    for (const c of compsData || []) {
+      if (!componentMap.has(c.parentproductid)) componentMap.set(c.parentproductid, [])
+      componentMap.get(c.parentproductid)!.push(c)
+    }
+    // Add component product IDs to the product map if not already there
+    const compProductIds = (compsData || [])
+      .map((c: any) => (c as any).tblproducts?.productid)
+      .filter(Boolean)
+    const missingIds = compProductIds.filter((id: number) => !productMap.has(id))
+    if (missingIds.length > 0) {
+      const { data: extraProducts } = await supabase
+        .from('tblproducts')
+        .select('productid, sku, productname, pickingbintracked, bagsizedefault, isbundle')
+        .in('productid', missingIds)
+      for (const p of extraProducts || []) productMap.set(p.productid, p)
+    }
+  }
+
+  // Collect full set of product IDs including component children
+  const allProductIdsIncComponents = [...productMap.keys()]
+
+  // 5. Stock levels for all products
+  const { data: stockData } = await supabase
+    .from('tblstocklevels')
+    .select('productid, quantityonhand, pickpriority, bagsize, locationid')
+    .in('productid', allProductIdsIncComponents)
+  const stockByProduct = new Map<number, any[]>()
+  for (const s of stockData || []) {
+    if (!stockByProduct.has(s.productid)) stockByProduct.set(s.productid, [])
+    stockByProduct.get(s.productid)!.push(s)
+  }
+
+  // 6. Locations for all location IDs referenced in stock levels
+  const allLocationIds = [...new Set((stockData || []).map((s: any) => s.locationid).filter(Boolean))]
+  const locationMap = new Map<number, any>()
+  if (allLocationIds.length > 0) {
+    const { data: locsData } = await supabase
+      .from('tbllocations')
+      .select('locationid, locationcode, locationname, locationtype, pickpriority, isactive')
+      .in('locationid', allLocationIds)
+    for (const l of locsData || []) locationMap.set(l.locationid, l)
+  }
+
+  return { settings, orderMap, linesByOrder, productMap, componentMap, stockByProduct, locationMap }
+}
+
+// ── Single-order HTML renderer (uses pre-loaded data, no DB calls) ─────────────
+
+function renderOrderDocuments(
+  orderid: number,
+  data: Awaited<ReturnType<typeof loadBulkPrintData>>
+): string {
+  const { settings, orderMap, linesByOrder, productMap, componentMap, stockByProduct, locationMap } = data
+  const order = orderMap.get(orderid)
+  if (!order) return ''
+  const lines = linesByOrder.get(orderid) || []
 
   type PickLine = {
     sku: string
@@ -63,50 +159,47 @@ async function buildOrderDocuments(orderid: number): Promise<string> {
 
   const pickLines: PickLine[] = []
 
-  const buildPickLinesForProduct = async (
+  const buildPickLinesForProduct = (
     productid: number,
     sku: string,
     productname: string,
     quantityordered: number
   ) => {
-    const { data: product } = await supabase
-      .from('tblproducts')
-      .select('pickingbintracked, bagsizedefault, isbundle')
-      .eq('productid', productid)
-      .single()
+    const product = productMap.get(productid)
+    if (!product) {
+      pickLines.push({ sku, productname, quantityordered, productid, pickingbintracked: false,
+        binlocation: null, binqty: 0, overflowlocations: [] })
+      return
+    }
 
-    if (product?.isbundle) {
-      const { data: components } = await supabase
-        .from('tblproductcomponents')
-        .select(`quantity, tblproducts!childproductid (productid, sku, productname)`)
-        .eq('parentproductid', productid)
-      for (const comp of components || []) {
+    if (product.isbundle) {
+      const components = componentMap.get(productid) || []
+      for (const comp of components) {
         const child = (comp as any).tblproducts
         if (!child) continue
-        await buildPickLinesForProduct(child.productid, child.sku, `${child.productname} [part of ${sku}]`, quantityordered * comp.quantity)
+        buildPickLinesForProduct(child.productid, child.sku, `${child.productname} [part of ${sku}]`, quantityordered * comp.quantity)
       }
       return
     }
 
-    const productBagsize = product?.bagsizedefault || 1
-    const { data: stockLevels } = await supabase
-      .from('tblstocklevels')
-      .select(`stocklevelid, quantityonhand, pickpriority, bagsize, locationid,
-        tbllocations (locationid, locationcode, locationname, locationtype, pickpriority, isactive)`)
-      .eq('productid', productid).order('pickpriority')
-    const levels = (stockLevels || []).filter((s: any) => s.tbllocations?.isactive)
-    const binLevel = levels.find((s: any) => s.tbllocations?.locationtype === 'Picking Bin')
-    const overflowLevels = levels
-      .filter((s: any) => s.tbllocations?.locationtype !== 'Picking Bin' && s.quantityonhand > 0)
-      .sort((a: any, b: any) => (a.tbllocations?.pickpriority || 9999) - (b.tbllocations?.pickpriority || 9999))
+    const productBagsize = product.bagsizedefault || 1
+    const stockLevels = (stockByProduct.get(productid) || [])
+      .map((s: any) => ({ ...s, loc: locationMap.get(s.locationid) }))
+      .filter((s: any) => s.loc?.isactive)
+
+    const binLevel = stockLevels.find((s: any) => s.loc?.locationtype === 'Picking Bin')
+    const overflowLevels = stockLevels
+      .filter((s: any) => s.loc?.locationtype !== 'Picking Bin' && s.quantityonhand > 0)
+      .sort((a: any, b: any) => (a.loc?.pickpriority || 9999) - (b.loc?.pickpriority || 9999))
+
     pickLines.push({
       sku, productname, quantityordered, productid,
-      pickingbintracked: product?.pickingbintracked || false,
-      binlocation: (binLevel as any)?.tbllocations?.locationcode || null,
+      pickingbintracked: product.pickingbintracked || false,
+      binlocation: binLevel?.loc?.locationcode || null,
       binqty: binLevel?.quantityonhand || 0,
       overflowlocations: overflowLevels.map((s: any) => ({
-        locationcode: s.tbllocations?.locationcode || '',
-        locationname: s.tbllocations?.locationname || null,
+        locationcode: s.loc?.locationcode || '',
+        locationname: s.loc?.locationname || null,
         quantityonhand: s.quantityonhand,
         bagsize: s.bagsize > 0 ? s.bagsize : productBagsize,
       })),
@@ -115,7 +208,7 @@ async function buildOrderDocuments(orderid: number): Promise<string> {
 
   for (const line of lines) {
     if (!line.productid) continue
-    await buildPickLinesForProduct(line.productid, line.sku || '', line.productname || '', line.quantityordered)
+    buildPickLinesForProduct(line.productid, line.sku || '', line.productname || '', line.quantityordered)
   }
 
   pickLines.sort((a, b) => (a.binlocation || 'ZZZ').localeCompare(b.binlocation || 'ZZZ'))
@@ -179,11 +272,21 @@ async function buildOrderDocuments(orderid: number): Promise<string> {
   const deliveryAddress = [order.shiptoname, order.shiptoaddress1, order.shiptoaddress2,
     order.shiptoaddress3, order.shiptotown, order.shiptocounty,
     order.shiptopostcode, order.shiptocountry].filter(Boolean).join('<br>')
-  const companyBlock = order.isblindship ? '' :
-    `<div style="font-size:9pt;margin-bottom:8pt"><strong>Oceanus Group Ltd</strong><br>[Your address here]</div>`
-  const packingRows = lines.map((line: any) =>
-    `<tr><td>${line.sku}</td><td>${line.productname}</td><td style="text-align:center">${line.quantityordered}</td></tr>`
-  ).join('')
+  const companyName    = settings['CompanyName'] || ''
+  const companyAddress = (settings['CompanyAddress'] || '').replace(/\n/g, '<br>')
+  const companyPhone   = settings['CompanyPhone'] || ''
+  const companyEmail   = settings['CompanyEmail'] || ''
+  const companyBlock = order.isblindship ? '' : `
+    <div style="font-size:9pt;margin-bottom:8pt">
+      <strong>${companyName}</strong><br>
+      ${companyAddress}${companyPhone ? `<br>${companyPhone}` : ''}${companyEmail ? `<br>${companyEmail}` : ''}
+    </div>
+  `
+  const packingRows = [...lines]
+    .sort((a: any, b: any) => (a.sku || '').localeCompare(b.sku || ''))
+    .map((line: any) =>
+      `<tr><td>${line.sku}</td><td>${line.productname}</td><td style="text-align:center">${line.quantityordered}</td></tr>`
+    ).join('')
 
   return `
     <div style="margin:20pt">
@@ -378,15 +481,23 @@ export default function OrdersPage() {
     if (selectedOrders.length === 0) return
     setPrinting(true)
 
+    // Load all data in one batch (6 queries total regardless of order count)
+    const orderids = selectedOrders.map((o) => o.orderid)
+    const bulkData = await loadBulkPrintData(orderids)
+
+    // Render HTML for each order from pre-loaded data (no further DB calls)
     const parts: string[] = []
     for (const order of selectedOrders) {
-      const html = await buildOrderDocuments(order.orderid)
+      const html = renderOrderDocuments(order.orderid, bulkData)
       if (html) parts.push(html)
     }
 
-    for (const order of selectedOrders) {
-      await supabase.from('tblorders').update({ status: 'Printed' }).eq('orderid', order.orderid)
-    }
+    // Update statuses in parallel
+    await Promise.all(
+      selectedOrders.map((order) =>
+        supabase.from('tblorders').update({ status: 'Printed' }).eq('orderid', order.orderid)
+      )
+    )
 
     setPrinting(false)
 

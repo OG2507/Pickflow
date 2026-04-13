@@ -456,7 +456,14 @@ export default function ProductDetailPage() {
           {product?.isbundle && <ProductComponentsPanel productid={product.productid} />}
 
           {/* Supplier links panel — not shown for bundles */}
-          {product && !product.isbundle && <ProductSuppliersPanel productid={product.productid} />}
+          {product && !product.isbundle && (
+            <ProductSuppliersPanel
+              productid={product.productid}
+              sku={product.sku}
+              productname={product.productname}
+              reorderqty={product.reorderqty ?? 1}
+            />
+          )}
 
           {/* Sales history panel */}
           {product && <ProductSalesPanel sku={product.sku} />}

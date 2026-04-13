@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 type SupplierLink = {
@@ -19,6 +20,11 @@ type Supplier = {
   suppliername: string
 }
 
+type DraftPO = {
+  poid: number
+  ponumber: string | null
+}
+
 const emptyLink = {
   supplierid: '',
   suppliersku: '',
@@ -31,7 +37,18 @@ const emptyLink = {
 const formatPrice = (price: number) =>
   new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(price)
 
-export default function ProductSuppliersPanel({ productid }: { productid: number }) {
+export default function ProductSuppliersPanel({
+  productid,
+  sku,
+  productname,
+  reorderqty,
+}: {
+  productid: number
+  sku: string
+  productname: string
+  reorderqty: number
+}) {
+  const router = useRouter()
   const [links, setLinks] = useState<SupplierLink[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,6 +57,16 @@ export default function ProductSuppliersPanel({ productid }: { productid: number
   const [addErrors, setAddErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Add to PO modal
+  const [showAddToPO, setShowAddToPO] = useState(false)
+  const [poSupplierId, setPOSupplierId] = useState('')
+  const [poQty, setPOQty] = useState('')
+  const [draftPOs, setDraftPOs] = useState<DraftPO[]>([])
+  const [selectedPOId, setSelectedPOId] = useState('')
+  const [poSaving, setPOSaving] = useState(false)
+  const [poError, setPOError] = useState<string | null>(null)
+  const [poSuccess, setPOSuccess] = useState<{ ponumber: string; poid: number } | null>(null)
 
   const fetchLinks = async () => {
     const { data, error } = await supabase
@@ -172,17 +199,168 @@ export default function ProductSuppliersPanel({ productid }: { productid: number
     await fetchLinks()
   }
 
+  // ── Add to PO ─────────────────────────────────────────────────
+
+  const openAddToPO = async () => {
+    setPOError(null)
+    setPOSuccess(null)
+    // Pre-select preferred supplier
+    const preferred = links.find((l) => l.ispreferred)
+    const defaultSupplierId = preferred ? String(preferred.supplierid) : (links[0] ? String(links[0].supplierid) : '')
+    setPOSupplierId(defaultSupplierId)
+    setPOQty(reorderqty ? String(reorderqty) : '1')
+    setSelectedPOId('')
+    setDraftPOs([])
+    if (defaultSupplierId) {
+      await loadDraftPOs(parseInt(defaultSupplierId))
+    }
+    setShowAddToPO(true)
+  }
+
+  const loadDraftPOs = async (supplierId: number) => {
+    const { data } = await supabase
+      .from('tblpurchaseorders')
+      .select('poid, ponumber')
+      .eq('supplierid', supplierId)
+      .eq('status', 'Draft')
+      .order('orderdate', { ascending: false })
+    setDraftPOs(data || [])
+    setSelectedPOId('')
+  }
+
+  const handlePOSupplierChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value
+    setPOSupplierId(val)
+    setPOError(null)
+    if (val) {
+      await loadDraftPOs(parseInt(val))
+    } else {
+      setDraftPOs([])
+      setSelectedPOId('')
+    }
+  }
+
+  const generatePONumber = async () => {
+    const year = new Date().getFullYear()
+    const { data } = await supabase
+      .from('tblpurchaseorders')
+      .select('ponumber')
+      .ilike('ponumber', `PO-${year}-%`)
+      .order('ponumber', { ascending: false })
+      .limit(1)
+    let nextNum = 1
+    if (data && data.length > 0) {
+      const last = data[0].ponumber?.split('-').pop()
+      if (last) nextNum = parseInt(last) + 1
+    }
+    return `PO-${year}-${nextNum.toString().padStart(5, '0')}`
+  }
+
+  const confirmAddToPO = async () => {
+    if (!poSupplierId) { setPOError('Select a supplier'); return }
+    const qty = parseInt(poQty)
+    if (!qty || qty < 1) { setPOError('Enter a valid quantity'); return }
+
+    setPOSaving(true)
+    setPOError(null)
+
+    let targetPOId: number
+
+    if (selectedPOId) {
+      // Add to existing PO
+      targetPOId = parseInt(selectedPOId)
+    } else {
+      // Create a new Draft PO
+      const supplier = links.find((l) => String(l.supplierid) === poSupplierId)
+      const ponumber = await generatePONumber()
+      const { data: newPO, error: poErr } = await supabase
+        .from('tblpurchaseorders')
+        .insert({
+          ponumber,
+          supplierid:   parseInt(poSupplierId),
+          orderdate:    new Date().toISOString(),
+          status:       'Draft',
+          subtotal:     0,
+          deliverycost: 0,
+          pototal:      0,
+          createdby:    'system',
+        })
+        .select('poid, ponumber')
+        .single()
+
+      if (poErr || !newPO) {
+        setPOError('Failed to create PO: ' + (poErr?.message || 'unknown error'))
+        setPOSaving(false)
+        return
+      }
+      targetPOId = newPO.poid
+    }
+
+    // Insert the line
+    const supplierLink = links.find((l) => String(l.supplierid) === poSupplierId)
+    const { error: lineErr } = await supabase
+      .from('tblpurchaseorderlines')
+      .insert({
+        poid:                 targetPOId,
+        productid:            productid,
+        quantityordered:      qty,
+        quantityreceived:     0,
+        unitcostusd:          0,
+        unitcost:             supplierLink?.unitcost || 0,
+        landedcostgbp:        0,
+        landedcostcalculated: false,
+        linetotal:            0,
+        status:               'Pending',
+      })
+
+    if (lineErr) {
+      setPOError('Failed to add line: ' + lineErr.message)
+      setPOSaving(false)
+      return
+    }
+
+    // Find the PO number to show in success message
+    let displayNumber = ''
+    if (selectedPOId) {
+      displayNumber = draftPOs.find((p) => p.poid === parseInt(selectedPOId))?.ponumber || String(selectedPOId)
+    } else {
+      // fetch it back
+      const { data } = await supabase
+        .from('tblpurchaseorders')
+        .select('ponumber')
+        .eq('poid', targetPOId)
+        .single()
+      displayNumber = data?.ponumber || ''
+    }
+
+    setPOSuccess({ ponumber: displayNumber, poid: targetPOId })
+    setPOSaving(false)
+  }
+
+  const closeAddToPO = () => {
+    setShowAddToPO(false)
+    setPOSuccess(null)
+    setPOError(null)
+  }
+
   return (
     <div className="pf-card">
       <div className="pf-panel-header">
         <h2 className="pf-card-title" style={{ marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>
           Suppliers
         </h2>
-        {!showAdd && (
-          <button className="pf-btn-edit" onClick={() => setShowAdd(true)}>
-            + Add
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {links.length > 0 && !showAdd && (
+            <button className="pf-btn-primary" onClick={openAddToPO}>
+              + Order
+            </button>
+          )}
+          {!showAdd && (
+            <button className="pf-btn-edit" onClick={() => setShowAdd(true)}>
+              + Add
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ borderBottom: '1px solid var(--border)', marginBottom: '0.875rem', marginTop: '0.75rem' }} />
@@ -280,6 +458,108 @@ export default function ProductSuppliersPanel({ productid }: { productid: number
           ))}
         </div>
       ) : null}
+
+      {/* ── Add to PO modal ─────────────────────────────────────── */}
+      {showAddToPO && (
+        <div className="pf-modal-overlay" onClick={closeAddToPO}>
+          <div className="pf-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="pf-modal-header">
+              <h2 className="pf-modal-title">Add to Purchase Order</h2>
+              <button className="pf-modal-close" onClick={closeAddToPO}>✕</button>
+            </div>
+
+            <div className="pf-modal-body">
+              <div style={{ marginBottom: '0.5rem' }}>
+                <span className="pf-sku">{sku}</span>{' '}
+                <span className="pf-productname">{productname}</span>
+              </div>
+
+              {poSuccess ? (
+                <div>
+                  <div className="pf-alert-success" style={{ marginBottom: '1rem' }}>
+                    Added to {poSuccess.ponumber}.
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                    <button className="pf-btn-secondary" onClick={closeAddToPO}>Close</button>
+                    <button
+                      className="pf-btn-primary"
+                      onClick={() => router.push(`/purchase-orders/${poSuccess.poid}`)}
+                    >
+                      View PO →
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {poError && (
+                    <div className="pf-alert-error" style={{ marginBottom: '0.75rem' }}>{poError}</div>
+                  )}
+
+                  <div className="pf-field" style={{ marginBottom: '0.75rem' }}>
+                    <label className="pf-label">Supplier</label>
+                    <select
+                      className="pf-input"
+                      value={poSupplierId}
+                      onChange={handlePOSupplierChange}
+                    >
+                      <option value="">— Select supplier —</option>
+                      {links.map((l) => (
+                        <option key={l.supplierid} value={l.supplierid}>
+                          {l.suppliername}{l.ispreferred ? ' (preferred)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="pf-field" style={{ marginBottom: '0.75rem' }}>
+                    <label className="pf-label">Quantity</label>
+                    <input
+                      className="pf-input pf-input-num"
+                      type="number"
+                      min="1"
+                      value={poQty}
+                      onChange={(e) => setPOQty(e.target.value)}
+                      style={{ maxWidth: '100px' }}
+                    />
+                  </div>
+
+                  <div className="pf-field" style={{ marginBottom: '1rem' }}>
+                    <label className="pf-label">Add to PO</label>
+                    <select
+                      className="pf-input"
+                      value={selectedPOId}
+                      onChange={(e) => setSelectedPOId(e.target.value)}
+                    >
+                      <option value="">— Create new Draft PO —</option>
+                      {draftPOs.map((po) => (
+                        <option key={po.poid} value={po.poid}>
+                          {po.ponumber} (Draft)
+                        </option>
+                      ))}
+                    </select>
+                    {draftPOs.length === 0 && poSupplierId && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'block' }}>
+                        No open drafts for this supplier — a new PO will be created.
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                    <button className="pf-btn-secondary" onClick={closeAddToPO}>Cancel</button>
+                    <button
+                      className="pf-btn-primary"
+                      onClick={confirmAddToPO}
+                      disabled={poSaving}
+                    >
+                      {poSaving ? 'Adding…' : 'Add to PO'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
