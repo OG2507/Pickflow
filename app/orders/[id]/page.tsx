@@ -170,6 +170,10 @@ export default function OrderDetailPage() {
   // Client info for pricing
   const [clientIsReduced, setClientIsReduced] = useState(false)
 
+  // Picked quantities — editable when order is in Picking status.
+  // Keyed by orderlineid, pre-filled from quantityordered.
+  const [pickedQtys, setPickedQtys] = useState<Record<number, number>>({})
+
   const isWebsiteOrder = (o: Order) => WEBSITE_SOURCES.includes(o.ordersource || '')
   const statusFlow = (o: Order) => isWebsiteOrder(o) ? WEBSITE_FLOW : MANUAL_FLOW
 
@@ -205,6 +209,14 @@ export default function OrderDetailPage() {
       .order('orderlineid')
 
     setLines(linesData || [])
+
+    // Initialise picked quantities from quantityordered (or quantitypicked if already set)
+    const initialPickedQtys: Record<number, number> = {}
+    for (const l of linesData || []) {
+      initialPickedQtys[l.orderlineid] = l.quantitypicked > 0 ? l.quantitypicked : l.quantityordered
+    }
+    setPickedQtys(initialPickedQtys)
+
     setLoading(false)
   }, [id])
 
@@ -451,6 +463,11 @@ export default function OrderDetailPage() {
     const newLines = lines.filter((l) => l.orderlineid !== lineId)
     setLines(newLines)
     await recalculateTotals(newLines, order?.shippingcost || 0)
+  }
+
+  // ── Picked quantity (Picking status only) ──────────────────────
+  const updatePickedQty = (lineId: number, qty: number) => {
+    setPickedQtys((prev) => ({ ...prev, [lineId]: Math.max(0, qty) }))
   }
 
   // ── Shipping method ────────────────────────────────────────────
@@ -1000,7 +1017,10 @@ export default function OrderDetailPage() {
 
     for (const line of lines) {
       if (!line.productid) continue
-      const actualPicked = await executePickMovements(line.productid, line.quantityordered, order.ordernumber)
+      const qtyToProcess = pickedQtys[line.orderlineid] ?? line.quantityordered
+      const actualPicked = qtyToProcess === 0
+        ? 0
+        : await executePickMovements(line.productid, qtyToProcess, order.ordernumber)
       // Write the actual quantity picked — may be less than ordered if stock was short
       await supabase
         .from('tblorderlines')
@@ -1254,7 +1274,10 @@ export default function OrderDetailPage() {
                   <tr>
                     <th>SKU</th>
                     <th>Product</th>
-                    <th className="pf-col-right">Qty</th>
+                    <th className="pf-col-right">Qty Ordered</th>
+                    {order.status === 'Picking' && (
+                      <th className="pf-col-right">Qty Picked</th>
+                    )}
                     <th className="pf-col-right">Unit Price</th>
                     <th className="pf-col-right">Line Total</th>
                     <th className="pf-col-right">VAT</th>
@@ -1262,41 +1285,63 @@ export default function OrderDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {lines.map((line) => (
-                    <tr key={line.orderlineid}>
-                      <td className="pf-sku">{line.sku}</td>
-                      <td className="pf-productname">{line.productname}</td>
-                      <td className="pf-col-right">
-                        {!isCancelled && !isCompleted ? (
-                          <input
-                            className="pf-input pf-input-sm pf-input-num pf-qty-input"
-                            type="number"
-                            min="1"
-                            value={line.quantityordered}
-                            onChange={(e) => updateLineQty(line.orderlineid, parseInt(e.target.value) || 1)}
-                          />
-                        ) : line.quantityordered}
-                      </td>
-                      <td className="pf-col-right pf-price">{formatPrice(line.unitprice)}</td>
-                      <td className="pf-col-right pf-price">{formatPrice(line.linetotal)}</td>
-                      <td className="pf-col-right pf-category">
-                        <span className={`pf-badge ${line.vatstatus === 'Standard' ? 'pf-badge-vat' : 'pf-badge-zero'}`}>
-                          {line.vatstatus === 'Standard' ? '20%' : 'Zero'}
-                        </span>
-                      </td>
-                      <td>
-                        {!isCancelled && !isCompleted && (
-                          <button
-                            className="pf-btn-deactivate"
-                            style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem' }}
-                            onClick={() => removeLine(line.orderlineid)}
-                          >
-                            ✕
-                          </button>
+                  {lines.map((line) => {
+                    const pickedQty = pickedQtys[line.orderlineid] ?? line.quantityordered
+                    const isShort = pickedQty < line.quantityordered
+                    return (
+                      <tr
+                        key={line.orderlineid}
+                        style={order.status === 'Picking' && isShort
+                          ? { backgroundColor: 'var(--pf-red-bg, #fff0f0)' }
+                          : undefined}
+                      >
+                        <td className="pf-sku">{line.sku}</td>
+                        <td className="pf-productname">{line.productname}</td>
+                        <td className="pf-col-right">
+                          {!isCancelled && !isCompleted && order.status !== 'Picking' ? (
+                            <input
+                              className="pf-input pf-input-sm pf-input-num pf-qty-input"
+                              type="number"
+                              min="1"
+                              value={line.quantityordered}
+                              onChange={(e) => updateLineQty(line.orderlineid, parseInt(e.target.value) || 1)}
+                            />
+                          ) : line.quantityordered}
+                        </td>
+                        {order.status === 'Picking' && (
+                          <td className="pf-col-right">
+                            <input
+                              className="pf-input pf-input-sm pf-input-num pf-qty-input"
+                              type="number"
+                              min="0"
+                              max={line.quantityordered}
+                              value={pickedQty}
+                              onChange={(e) => updatePickedQty(line.orderlineid, parseInt(e.target.value) || 0)}
+                              style={isShort ? { borderColor: 'var(--pf-red, #cc0000)', color: 'var(--pf-red, #cc0000)' } : undefined}
+                            />
+                          </td>
                         )}
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="pf-col-right pf-price">{formatPrice(line.unitprice)}</td>
+                        <td className="pf-col-right pf-price">{formatPrice(line.linetotal)}</td>
+                        <td className="pf-col-right pf-category">
+                          <span className={`pf-badge ${line.vatstatus === 'Standard' ? 'pf-badge-vat' : 'pf-badge-zero'}`}>
+                            {line.vatstatus === 'Standard' ? '20%' : 'Zero'}
+                          </span>
+                        </td>
+                        <td>
+                          {!isCancelled && !isCompleted && order.status !== 'Picking' && (
+                            <button
+                              className="pf-btn-deactivate"
+                              style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem' }}
+                              onClick={() => removeLine(line.orderlineid)}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )}
