@@ -15,6 +15,7 @@ export type Product = {
   salesprice: number              // overrides price band if set
   wholesaleprice: number          // overrides price band if set
   reducedwholesaleprice: number   // overrides price band if set
+  costprice: number | null        // landed cost — for margin tracking when ready
   pricingcode: string | null      // reference to tblpricingcodes.pricingcode
   vatstatus: 'Standard' | 'Zero' | 'Exempt'
   weight: number | null           // grams

@@ -1,19 +1,21 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { Product } from '@/lib/types'
 
 export default function ProductsPage() {
   const router = useRouter()
-  const [products, setProducts] = useState<Product[]>([])
+
+  // allProducts holds everything fetched from Supabase — filtering happens locally
+  const [allProducts, setAllProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active')
-  const [categories, setCategories] = useState<string[]>([])
 
+  // Fetch products from Supabase — only called on mount and when activeFilter changes
   const fetchProducts = useCallback(async () => {
     setLoading(true)
 
@@ -24,44 +26,47 @@ export default function ProductsPage() {
 
     if (activeFilter === 'active') query = query.eq('isactive', true)
     if (activeFilter === 'inactive') query = query.eq('isactive', false)
-    if (categoryFilter) query = query.eq('category', categoryFilter)
-
-    if (search.trim()) {
-      query = query.or(
-        `sku.ilike.%${search.trim()}%,productname.ilike.%${search.trim()}%`
-      )
-    }
 
     const { data, error } = await query
 
     if (error) {
       console.error('Error fetching products:', error)
     } else {
-      setProducts(data || [])
+      setAllProducts(data || [])
     }
 
     setLoading(false)
-  }, [search, categoryFilter, activeFilter])
-
-  useEffect(() => {
-    const fetchCategories = async () => {
-      const { data } = await supabase
-        .from('tblproducts')
-        .select('category')
-        .not('category', 'is', null)
-        .order('category')
-
-      if (data) {
-        const unique = [...new Set(data.map((r) => r.category).filter(Boolean))] as string[]
-        setCategories(unique)
-      }
-    }
-    fetchCategories()
-  }, [])
+  }, [activeFilter])
 
   useEffect(() => {
     fetchProducts()
   }, [fetchProducts])
+
+  // Categories derived from loaded data — no second Supabase query needed
+  const categories = useMemo(() => {
+    const unique = [...new Set(allProducts.map((p) => p.category).filter(Boolean))] as string[]
+    return unique.sort()
+  }, [allProducts])
+
+  // All filtering happens in memory — no round trips on keystrokes
+  const filteredProducts = useMemo(() => {
+    let results = allProducts
+
+    if (categoryFilter) {
+      results = results.filter((p) => p.category === categoryFilter)
+    }
+
+    if (search.trim()) {
+      const term = search.trim().toLowerCase()
+      results = results.filter(
+        (p) =>
+          p.sku.toLowerCase().includes(term) ||
+          p.productname.toLowerCase().includes(term)
+      )
+    }
+
+    return results
+  }, [allProducts, search, categoryFilter])
 
   const formatPrice = (price: number) =>
     new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(price)
@@ -72,7 +77,9 @@ export default function ProductsPage() {
         <div>
           <h1 className="pf-page-title">Products</h1>
           <p className="pf-page-subtitle">
-            {loading ? '—' : `${products.length} product${products.length !== 1 ? 's' : ''}`}
+            {loading
+              ? '—'
+              : `${filteredProducts.length} product${filteredProducts.length !== 1 ? 's' : ''}${search || categoryFilter ? ` of ${allProducts.length}` : ''}`}
           </p>
         </div>
         <button
@@ -121,7 +128,7 @@ export default function ProductsPage() {
       <div className="pf-table-wrap">
         {loading ? (
           <div className="pf-loading">Loading products…</div>
-        ) : products.length === 0 ? (
+        ) : filteredProducts.length === 0 ? (
           <div className="pf-empty">No products found.</div>
         ) : (
           <table className="pf-table">
@@ -137,7 +144,7 @@ export default function ProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => (
+              {filteredProducts.map((p) => (
                 <tr
                   key={p.productid}
                   className="pf-row"
@@ -147,7 +154,7 @@ export default function ProductsPage() {
                   <td className="pf-productname">{p.productname}</td>
                   <td className="pf-category">{p.category ?? '—'}</td>
                   <td className="pf-col-right pf-price">{formatPrice(p.salesprice)}</td>
-                  <td className="pf-col-right pf-price pf-muted">{formatPrice(p.costprice)}</td>
+                  <td className="pf-col-right pf-price pf-muted">{formatPrice((p as any).costprice ?? 0)}</td>
                   <td>
                     <span className={`pf-badge ${p.vatstatus === 'Standard' ? 'pf-badge-vat' : 'pf-badge-zero'}`}>
                       {p.vatstatus}
