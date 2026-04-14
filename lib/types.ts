@@ -30,6 +30,8 @@ export type Product = {
   bagsizedefault: number
   productnotes: string | null
   productimagepath: string | null
+  shopwiredretailid: string | null    // Shopwired product ID for the retail listing
+  shopwiredwholesaleid: string | null // Shopwired product ID for the wholesale listing
   dateadded: string | null
   lastmodified: string | null
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCategories } from '@/lib/useCategories'
@@ -104,6 +104,10 @@ export default function ProductDetailPage() {
   const [dirty, setDirty] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const subcategories = getSubcategories(form.category || '')
 
@@ -171,6 +175,48 @@ export default function ProductDetailPage() {
       setTimeout(() => setSuccess(false), 3000)
     }
     setSaving(false)
+  }
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !product) return
+
+    setUploading(true)
+    setUploadError(null)
+
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+    const path = `products/${product.sku.replace(/[^a-z0-9]/gi, '_')}.${ext}`
+
+    const { error: uploadErr } = await supabase.storage
+      .from('product-images')
+      .upload(path, file, { upsert: true, contentType: file.type })
+
+    if (uploadErr) {
+      setUploadError('Upload failed: ' + uploadErr.message)
+      setUploading(false)
+      return
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('product-images')
+      .getPublicUrl(path)
+
+    const publicUrl = urlData.publicUrl
+
+    const { error: saveErr } = await supabase
+      .from('tblproducts')
+      .update({ productimagepath: publicUrl, lastmodified: new Date().toISOString() })
+      .eq('productid', product.productid)
+
+    if (saveErr) {
+      setUploadError('Image saved to storage but failed to update product: ' + saveErr.message)
+    } else {
+      setForm((prev) => ({ ...prev, productimagepath: publicUrl }))
+      setProduct((prev) => prev ? { ...prev, productimagepath: publicUrl } : prev)
+    }
+
+    setUploading(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   if (loading) return <div className="pf-page"><div className="pf-loading">Loading…</div></div>
@@ -273,6 +319,17 @@ export default function ProductDetailPage() {
             <div className="pf-field">
               <label className="pf-label">Product Notes</label>
               <textarea className="pf-input pf-textarea" name="productnotes" value={form.productnotes || ''} onChange={handleChange} rows={2} />
+            </div>
+
+            <div className="pf-field-row">
+              <div className="pf-field">
+                <label className="pf-label">Shopwired Retail ID</label>
+                <input className="pf-input pf-input-mono" name="shopwiredretailid" value={form.shopwiredretailid || ''} onChange={handleChange} placeholder="e.g. 123456" />
+              </div>
+              <div className="pf-field">
+                <label className="pf-label">Shopwired Wholesale ID</label>
+                <input className="pf-input pf-input-mono" name="shopwiredwholesaleid" value={form.shopwiredwholesaleid || ''} onChange={handleChange} placeholder="e.g. 123457" />
+              </div>
             </div>
           </div>
 
@@ -382,6 +439,90 @@ export default function ProductDetailPage() {
         {/* RIGHT COLUMN */}
         <div className="pf-detail-col">
 
+          {/* Product Image */}
+          <div className="pf-card">
+            <h2 className="pf-card-title">Product Image</h2>
+
+            {form.productimagepath ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div
+                  style={{
+                    cursor: 'zoom-in',
+                    borderRadius: '6px',
+                    overflow: 'hidden',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    maxHeight: '220px',
+                  }}
+                  onClick={() => setLightboxOpen(true)}
+                  title="Click to enlarge"
+                >
+                  <img
+                    src={form.productimagepath}
+                    alt={form.productname || 'Product image'}
+                    style={{ maxWidth: '100%', maxHeight: '220px', objectFit: 'contain', display: 'block' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <button
+                    className="pf-btn-secondary"
+                    style={{ fontSize: '0.8rem', padding: '0.3rem 0.75rem' }}
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    {uploading ? 'Uploading…' : 'Replace Image'}
+                  </button>
+                  <button
+                    className="pf-btn-deactivate"
+                    style={{ fontSize: '0.8rem', padding: '0.3rem 0.75rem' }}
+                    onClick={() => {
+                      setForm((prev) => ({ ...prev, productimagepath: null }))
+                      setDirty(true)
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div
+                  style={{
+                    border: '2px dashed var(--border)',
+                    borderRadius: '6px',
+                    padding: '2rem 1rem',
+                    textAlign: 'center',
+                    color: 'var(--text-secondary)',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  No image uploaded
+                </div>
+                <button
+                  className="pf-btn-secondary"
+                  style={{ fontSize: '0.8rem', padding: '0.3rem 0.75rem', alignSelf: 'flex-start' }}
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                >
+                  {uploading ? 'Uploading…' : 'Upload Image'}
+                </button>
+              </div>
+            )}
+
+            {uploadError && <div className="pf-error-inline" style={{ marginTop: '0.5rem' }}>{uploadError}</div>}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              style={{ display: 'none' }}
+              onChange={handleImageUpload}
+            />
+          </div>
+
           <div className="pf-card">
             <h2 className="pf-card-title">Stock & Reorder</h2>
 
@@ -489,6 +630,61 @@ export default function ProductDetailPage() {
 
         </div>
       </div>
+
+      {/* Lightbox */}
+      {lightboxOpen && form.productimagepath && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.85)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'zoom-out',
+          }}
+          onClick={() => setLightboxOpen(false)}
+        >
+          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
+            <img
+              src={form.productimagepath}
+              alt={form.productname || 'Product image'}
+              style={{
+                maxWidth: '90vw',
+                maxHeight: '90vh',
+                objectFit: 'contain',
+                borderRadius: '6px',
+                boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <button
+              onClick={() => setLightboxOpen(false)}
+              style={{
+                position: 'absolute',
+                top: '-12px',
+                right: '-12px',
+                background: 'var(--bg)',
+                border: '1px solid var(--border)',
+                borderRadius: '50%',
+                width: '28px',
+                height: '28px',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                lineHeight: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text)',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
