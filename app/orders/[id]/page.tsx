@@ -170,10 +170,6 @@ export default function OrderDetailPage() {
   // Client info for pricing
   const [clientIsReduced, setClientIsReduced] = useState(false)
 
-  // Picked quantities — editable when order is in Picking status.
-  // Keyed by orderlineid, pre-filled from quantityordered.
-  const [pickedQtys, setPickedQtys] = useState<Record<number, number>>({})
-
   const isWebsiteOrder = (o: Order) => WEBSITE_SOURCES.includes(o.ordersource || '')
   const statusFlow = (o: Order) => isWebsiteOrder(o) ? WEBSITE_FLOW : MANUAL_FLOW
 
@@ -209,14 +205,6 @@ export default function OrderDetailPage() {
       .order('orderlineid')
 
     setLines(linesData || [])
-
-    // Initialise picked quantities from quantityordered (or quantitypicked if already set)
-    const initialPickedQtys: Record<number, number> = {}
-    for (const l of linesData || []) {
-      initialPickedQtys[l.orderlineid] = l.quantitypicked > 0 ? l.quantitypicked : l.quantityordered
-    }
-    setPickedQtys(initialPickedQtys)
-
     setLoading(false)
   }, [id])
 
@@ -465,9 +453,20 @@ export default function OrderDetailPage() {
     await recalculateTotals(newLines, order?.shippingcost || 0)
   }
 
-  // ── Picked quantity (Picking status only) ──────────────────────
-  const updatePickedQty = (lineId: number, qty: number) => {
-    setPickedQtys((prev) => ({ ...prev, [lineId]: Math.max(0, qty) }))
+  // ── Update picked quantity (Picking stage only) ────────────────
+  // Tracks which lines have been manually adjusted so they can be highlighted.
+  const [editedPickedLines, setEditedPickedLines] = useState<Set<number>>(new Set())
+
+  const updatePickedQty = async (lineId: number, qty: number) => {
+    if (qty < 0) return
+    await supabase
+      .from('tblorderlines')
+      .update({ quantitypicked: qty })
+      .eq('orderlineid', lineId)
+    setLines((prev) => prev.map((l) =>
+      l.orderlineid === lineId ? { ...l, quantitypicked: qty } : l
+    ))
+    setEditedPickedLines((prev) => new Set(prev).add(lineId))
   }
 
   // ── Shipping method ────────────────────────────────────────────
@@ -519,6 +518,8 @@ export default function OrderDetailPage() {
 
   const [confirmingPick, setConfirmingPick] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
+  const [showTrackingModal, setShowTrackingModal] = useState(false)
+  const [pendingTrackingNumber, setPendingTrackingNumber] = useState('')
 
   // ── Print Order ────────────────────────────────────────────────
   const exportToRoyalMail = async () => {
@@ -1017,10 +1018,7 @@ export default function OrderDetailPage() {
 
     for (const line of lines) {
       if (!line.productid) continue
-      const qtyToProcess = pickedQtys[line.orderlineid] ?? line.quantityordered
-      const actualPicked = qtyToProcess === 0
-        ? 0
-        : await executePickMovements(line.productid, qtyToProcess, order.ordernumber)
+      const actualPicked = await executePickMovements(line.productid, line.quantityordered, order.ordernumber)
       // Write the actual quantity picked — may be less than ordered if stock was short
       await supabase
         .from('tblorderlines')
@@ -1033,6 +1031,34 @@ export default function OrderDetailPage() {
     await supabase.from('tblorders').update(updates).eq('orderid', id)
     setOrder((prev) => prev ? { ...prev, ...updates } : prev)
     setConfirmingPick(false)
+  }
+
+  // ── Tracking modal handler ──────────────────────────────────────
+  // For wholesale orders, intercept Confirm Pick to prompt for tracking number.
+  // Shopwired and eBay orders skip the modal — labels come from Shopwired directly.
+  const handleConfirmPickClick = () => {
+    if (!order) return
+    const isWholesale = order.ordersource !== 'Shopwired' && order.ordersource !== 'eBay'
+    if (isWholesale) {
+      setPendingTrackingNumber(order.trackingnumber || '')
+      setShowTrackingModal(true)
+    } else {
+      confirmPick()
+    }
+  }
+
+  const handleTrackingModalConfirm = async () => {
+    if (!order) return
+    setShowTrackingModal(false)
+    // Save tracking number to order record before running confirmPick
+    if (pendingTrackingNumber.trim()) {
+      await supabase
+        .from('tblorders')
+        .update({ trackingnumber: pendingTrackingNumber.trim() })
+        .eq('orderid', order.orderid)
+      setOrder((prev) => prev ? { ...prev, trackingnumber: pendingTrackingNumber.trim() } : prev)
+    }
+    confirmPick()
   }
 
   // ── Advance status ─────────────────────────────────────────────
@@ -1125,7 +1151,7 @@ export default function OrderDetailPage() {
           {order.status === 'Picking' && !isCancelled && (
             <button
               className="pf-btn-primary"
-              onClick={confirmPick}
+              onClick={handleConfirmPickClick}
               disabled={confirmingPick}
             >
               {confirmingPick ? 'Processing…' : '✓ Confirm Pick'}
@@ -1274,9 +1300,9 @@ export default function OrderDetailPage() {
                   <tr>
                     <th>SKU</th>
                     <th>Product</th>
-                    <th className="pf-col-right">Qty Ordered</th>
-                    {order.status === 'Picking' && (
-                      <th className="pf-col-right">Qty Picked</th>
+                    <th className="pf-col-right">Ordered</th>
+                    {(order.status === 'Picking' || ['Dispatched', 'Invoiced', 'Completed'].includes(order.status)) && (
+                      <th className="pf-col-right">Picked</th>
                     )}
                     <th className="pf-col-right">Unit Price</th>
                     <th className="pf-col-right">Line Total</th>
@@ -1286,19 +1312,22 @@ export default function OrderDetailPage() {
                 </thead>
                 <tbody>
                   {lines.map((line) => {
-                    const pickedQty = pickedQtys[line.orderlineid] ?? line.quantityordered
-                    const isShort = pickedQty < line.quantityordered
+                    const isDispatched = ['Dispatched', 'Invoiced', 'Completed'].includes(order.status)
+                    const isPicking = order.status === 'Picking'
+                    const hasShortfall = isDispatched && line.quantitypicked < line.quantityordered
+                    const wasManuallyEdited = editedPickedLines.has(line.orderlineid)
                     return (
                       <tr
                         key={line.orderlineid}
-                        style={order.status === 'Picking' && isShort
-                          ? { backgroundColor: 'var(--pf-red-bg, #fff0f0)' }
-                          : undefined}
+                        style={wasManuallyEdited ? {
+                          background: 'var(--row-edited, #fef2f2)',
+                          outline: '1px solid var(--danger-border, #fca5a5)',
+                        } : {}}
                       >
                         <td className="pf-sku">{line.sku}</td>
                         <td className="pf-productname">{line.productname}</td>
                         <td className="pf-col-right">
-                          {!isCancelled && !isCompleted && order.status !== 'Picking' ? (
+                          {!isCancelled && !isCompleted && !isPicking ? (
                             <input
                               className="pf-input pf-input-sm pf-input-num pf-qty-input"
                               type="number"
@@ -1308,17 +1337,25 @@ export default function OrderDetailPage() {
                             />
                           ) : line.quantityordered}
                         </td>
-                        {order.status === 'Picking' && (
+                        {isPicking && (
                           <td className="pf-col-right">
                             <input
                               className="pf-input pf-input-sm pf-input-num pf-qty-input"
                               type="number"
                               min="0"
                               max={line.quantityordered}
-                              value={pickedQty}
-                              onChange={(e) => updatePickedQty(line.orderlineid, parseInt(e.target.value) || 0)}
-                              style={isShort ? { borderColor: 'var(--pf-red, #cc0000)', color: 'var(--pf-red, #cc0000)' } : undefined}
+                              value={line.quantitypicked}
+                              onChange={(e) => updatePickedQty(line.orderlineid, parseInt(e.target.value) ?? 0)}
+                              style={wasManuallyEdited ? { borderColor: 'var(--danger, #dc2626)' } : {}}
                             />
+                          </td>
+                        )}
+                        {isDispatched && (
+                          <td className="pf-col-right" style={hasShortfall ? {
+                            color: 'var(--warning, #b45309)',
+                            fontWeight: 600,
+                          } : {}}>
+                            {hasShortfall ? `${line.quantitypicked} ⚠` : line.quantitypicked}
                           </td>
                         )}
                         <td className="pf-col-right pf-price">{formatPrice(line.unitprice)}</td>
@@ -1329,7 +1366,7 @@ export default function OrderDetailPage() {
                           </span>
                         </td>
                         <td>
-                          {!isCancelled && !isCompleted && order.status !== 'Picking' && (
+                          {!isCancelled && !isCompleted && !isPicking && (
                             <button
                               className="pf-btn-deactivate"
                               style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem' }}
@@ -1519,6 +1556,57 @@ export default function OrderDetailPage() {
 
         </div>
       </div>
+
+      {/* Tracking number modal — wholesale orders only */}
+      {showTrackingModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            padding: '28px 32px',
+            width: '420px',
+            maxWidth: '90vw',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+          }}>
+            <h2 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', color: 'var(--text)' }}>
+              Add Royal Mail Tracking Number
+            </h2>
+            <p style={{ margin: '0 0 20px 0', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+              Enter the tracking number from Click &amp; Drop before dispatching. You can skip this and add it later from the order page.
+            </p>
+            <input
+              type="text"
+              className="pf-input pf-input-mono"
+              placeholder="e.g. JD000000000GB"
+              value={pendingTrackingNumber}
+              onChange={(e) => setPendingTrackingNumber(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleTrackingModalConfirm() }}
+              autoFocus
+              style={{ width: '100%', marginBottom: '20px', boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                className="pf-btn-secondary"
+                onClick={() => { setShowTrackingModal(false); confirmPick() }}
+              >
+                Skip for now
+              </button>
+              <button
+                className="pf-btn-primary"
+                onClick={handleTrackingModalConfirm}
+              >
+                {pendingTrackingNumber.trim() ? 'Save & Confirm Pick' : 'Confirm Pick'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

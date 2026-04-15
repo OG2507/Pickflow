@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -42,14 +42,9 @@ const formatPrice = (price: number) =>
   new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(price)
 
 // ── Bulk data loader ──────────────────────────────────────────────────────────
-// Fetches everything needed to print multiple orders in a fixed number of
-// queries (6 total regardless of order count), then returns a lookup map so
-// renderOrderDocuments() can build HTML purely from in-memory data.
-
 async function loadBulkPrintData(orderids: number[]) {
   const ids = orderids
 
-  // 1. App settings (company details for packing slip header)
   const { data: settingsData } = await supabase
     .from('tblappsettings')
     .select('settingkey, settingvalue')
@@ -57,12 +52,10 @@ async function loadBulkPrintData(orderids: number[]) {
   const settings: Record<string, string> = {}
   for (const s of settingsData || []) settings[s.settingkey] = s.settingvalue || ''
 
-  // 2. Orders
   const { data: orders } = await supabase
     .from('tblorders').select('*').in('orderid', ids)
   const orderMap = new Map<number, any>((orders || []).map((o: any) => [o.orderid, o]))
 
-  // 2. Order lines
   const { data: linesData } = await supabase
     .from('tblorderlines').select('*').in('orderid', ids).order('orderlineid')
   const linesByOrder = new Map<number, any[]>()
@@ -71,19 +64,16 @@ async function loadBulkPrintData(orderids: number[]) {
     linesByOrder.get(l.orderid)!.push(l)
   }
 
-  // Collect all product IDs referenced across all orders
   const allProductIds = [...new Set((linesData || []).map((l: any) => l.productid).filter(Boolean))]
 
-  // 3. Products
   const { data: productsData } = await supabase
     .from('tblproducts')
     .select('productid, sku, productname, pickingbintracked, bagsizedefault, isbundle')
     .in('productid', allProductIds)
   const productMap = new Map<number, any>((productsData || []).map((p: any) => [p.productid, p]))
 
-  // 4. Bundle components (only for bundle products)
   const bundleIds = (productsData || []).filter((p: any) => p.isbundle).map((p: any) => p.productid)
-  let componentMap = new Map<number, any[]>() // parentproductid → components
+  let componentMap = new Map<number, any[]>()
   if (bundleIds.length > 0) {
     const { data: compsData } = await supabase
       .from('tblproductcomponents')
@@ -93,7 +83,6 @@ async function loadBulkPrintData(orderids: number[]) {
       if (!componentMap.has(c.parentproductid)) componentMap.set(c.parentproductid, [])
       componentMap.get(c.parentproductid)!.push(c)
     }
-    // Add component product IDs to the product map if not already there
     const compProductIds = (compsData || [])
       .map((c: any) => (c as any).tblproducts?.productid)
       .filter(Boolean)
@@ -107,10 +96,8 @@ async function loadBulkPrintData(orderids: number[]) {
     }
   }
 
-  // Collect full set of product IDs including component children
   const allProductIdsIncComponents = [...productMap.keys()]
 
-  // 5. Stock levels for all products
   const { data: stockData } = await supabase
     .from('tblstocklevels')
     .select('productid, quantityonhand, pickpriority, bagsize, locationid')
@@ -121,7 +108,6 @@ async function loadBulkPrintData(orderids: number[]) {
     stockByProduct.get(s.productid)!.push(s)
   }
 
-  // 6. Locations for all location IDs referenced in stock levels
   const allLocationIds = [...new Set((stockData || []).map((s: any) => s.locationid).filter(Boolean))]
   const locationMap = new Map<number, any>()
   if (allLocationIds.length > 0) {
@@ -135,7 +121,7 @@ async function loadBulkPrintData(orderids: number[]) {
   return { settings, orderMap, linesByOrder, productMap, componentMap, stockByProduct, locationMap }
 }
 
-// ── Single-order HTML renderer (uses pre-loaded data, no DB calls) ─────────────
+// ── Single-order HTML renderer ─────────────────────────────────────────────────
 
 function renderOrderDocuments(
   orderid: number,
@@ -334,7 +320,7 @@ function renderOrderDocuments(
 
 export default function OrdersPage() {
   const router = useRouter()
-  const [orders, setOrders] = useState<OrderRow[]>([])
+  const [allOrders, setAllOrders] = useState<OrderRow[]>([])
   const [loading, setLoading] = useState(true)
   const [printing, setPrinting] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -431,6 +417,7 @@ export default function OrdersPage() {
     setSyncing(false)
   }
 
+  // Fetch only re-runs when status/source filter changes — not on search
   const fetchOrders = useCallback(async () => {
     setLoading(true)
     let query = supabase
@@ -441,11 +428,8 @@ export default function OrdersPage() {
       .order('orderdate', { ascending: false })
     if (statusFilter) query = query.eq('status', statusFilter)
     if (sourceFilter) query = query.eq('ordersource', sourceFilter)
-    if (search.trim()) {
-      query = query.or(`ordernumber.ilike.%${search.trim()}%,shiptoname.ilike.%${search.trim()}%,shiptopostcode.ilike.%${search.trim()}%`)
-    }
     const { data } = await query
-    setOrders((data || []).map((r: any) => ({
+    setAllOrders((data || []).map((r: any) => ({
       orderid: r.orderid, ordernumber: r.ordernumber, orderdate: r.orderdate,
       ordersource: r.ordersource, status: r.status, isebay: r.isebay || false,
       shiptoname: r.shiptoname,
@@ -455,24 +439,37 @@ export default function OrdersPage() {
       lastname: r.tblclients?.lastname, selected: false,
     })))
     setLoading(false)
-  }, [search, statusFilter, sourceFilter])
+  }, [statusFilter, sourceFilter])
 
   useEffect(() => { fetchOrders() }, [fetchOrders])
   useEffect(() => { checkPendingExports() }, [])
   useEffect(() => { checkPendingRM() }, [])
 
+  // Text search filtered in memory — no round trips on keystrokes
+  const orders = useMemo(() => {
+    if (!search.trim()) return allOrders
+    const term = search.trim().toLowerCase()
+    return allOrders.filter((o) =>
+      (o.ordernumber || '').toLowerCase().includes(term) ||
+      (o.shiptoname || '').toLowerCase().includes(term) ||
+      (o.shiptopostcode || '').toLowerCase().includes(term) ||
+      (o.companyname || '').toLowerCase().includes(term) ||
+      (`${o.firstname || ''} ${o.lastname || ''}`).toLowerCase().includes(term)
+    )
+  }, [allOrders, search])
+
   const clientName = (o: OrderRow) =>
     o.companyname?.trim() || `${o.firstname || ''} ${o.lastname || ''}`.trim() || '—'
 
   const toggleSelect = (orderid: number) => {
-    setOrders((prev) => prev.map((o) => o.orderid === orderid ? { ...o, selected: !o.selected } : o))
+    setAllOrders((prev) => prev.map((o) => o.orderid === orderid ? { ...o, selected: !o.selected } : o))
   }
 
   const toggleAll = () => {
     const printable = orders.filter((o) => PRINTABLE_STATUSES.includes(o.status))
     const allSelected = printable.every((o) => o.selected)
     const ids = new Set(printable.map((o) => o.orderid))
-    setOrders((prev) => prev.map((o) => ids.has(o.orderid) ? { ...o, selected: !allSelected } : o))
+    setAllOrders((prev) => prev.map((o) => ids.has(o.orderid) ? { ...o, selected: !allSelected } : o))
   }
 
   const selectedOrders = orders.filter((o) => o.selected)
@@ -481,18 +478,15 @@ export default function OrdersPage() {
     if (selectedOrders.length === 0) return
     setPrinting(true)
 
-    // Load all data in one batch (6 queries total regardless of order count)
     const orderids = selectedOrders.map((o) => o.orderid)
     const bulkData = await loadBulkPrintData(orderids)
 
-    // Render HTML for each order from pre-loaded data (no further DB calls)
     const parts: string[] = []
     for (const order of selectedOrders) {
       const html = renderOrderDocuments(order.orderid, bulkData)
       if (html) parts.push(html)
     }
 
-    // Update statuses in parallel
     await Promise.all(
       selectedOrders.map((order) =>
         supabase.from('tblorders').update({ status: 'Printed' }).eq('orderid', order.orderid)
@@ -543,7 +537,9 @@ export default function OrdersPage() {
         <div>
           <h1 className="pf-page-title">Orders</h1>
           <p className="pf-page-subtitle">
-            {loading ? '—' : `${orders.length} order${orders.length !== 1 ? 's' : ''}`}
+            {loading
+              ? '—'
+              : `${orders.length} order${orders.length !== 1 ? 's' : ''}${search ? ` of ${allOrders.length}` : ''}`}
           </p>
         </div>
         <div className="pf-header-actions">

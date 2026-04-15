@@ -200,7 +200,7 @@ export default function StockPage() {
     setByProduct(productList)
     setByLocation(locationList)
     setLoading(false)
-  }, [search, lowStockOnly])
+  }, [lowStockOnly])
 
   useEffect(() => {
     fetchStock()

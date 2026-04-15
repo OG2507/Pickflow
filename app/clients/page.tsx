@@ -1,17 +1,18 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import type { Client } from '@/lib/types'
 
 export default function ClientsPage() {
   const router = useRouter()
-  const [clients, setClients] = useState<Client[]>([])
+  const [allClients, setAllClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active')
 
+  // Fetch from Supabase only when activeFilter changes — not on every keystroke
   const fetchClients = useCallback(async () => {
     setLoading(true)
 
@@ -23,26 +24,33 @@ export default function ClientsPage() {
     if (activeFilter === 'active') query = query.eq('isactive', true)
     if (activeFilter === 'inactive') query = query.eq('isactive', false)
 
-    if (search.trim()) {
-      query = query.or(
-        `companyname.ilike.%${search.trim()}%,firstname.ilike.%${search.trim()}%,lastname.ilike.%${search.trim()}%,email.ilike.%${search.trim()}%,clientcode.ilike.%${search.trim()}%`
-      )
-    }
-
     const { data, error } = await query
 
     if (error) {
       console.error('Error fetching clients:', error)
     } else {
-      setClients(data || [])
+      setAllClients(data || [])
     }
 
     setLoading(false)
-  }, [search, activeFilter])
+  }, [activeFilter])
 
   useEffect(() => {
     fetchClients()
   }, [fetchClients])
+
+  // Search filtered in memory — no round trips
+  const filteredClients = useMemo(() => {
+    if (!search.trim()) return allClients
+    const term = search.trim().toLowerCase()
+    return allClients.filter((c) =>
+      (c.companyname || '').toLowerCase().includes(term) ||
+      (c.firstname || '').toLowerCase().includes(term) ||
+      (c.lastname || '').toLowerCase().includes(term) ||
+      (c.email || '').toLowerCase().includes(term) ||
+      (c.clientcode || '').toLowerCase().includes(term)
+    )
+  }, [allClients, search])
 
   const displayName = (c: Client) =>
     c.companyname?.trim() || `${c.firstname || ''} ${c.lastname || ''}`.trim() || '—'
@@ -53,7 +61,9 @@ export default function ClientsPage() {
         <div>
           <h1 className="pf-page-title">Clients</h1>
           <p className="pf-page-subtitle">
-            {loading ? '—' : `${clients.length} client${clients.length !== 1 ? 's' : ''}`}
+            {loading
+              ? '—'
+              : `${filteredClients.length} client${filteredClients.length !== 1 ? 's' : ''}${search ? ` of ${allClients.length}` : ''}`}
           </p>
         </div>
         <button
@@ -91,7 +101,7 @@ export default function ClientsPage() {
       <div className="pf-table-wrap">
         {loading ? (
           <div className="pf-loading">Loading clients…</div>
-        ) : clients.length === 0 ? (
+        ) : filteredClients.length === 0 ? (
           <div className="pf-empty">No clients found.</div>
         ) : (
           <table className="pf-table">
@@ -108,7 +118,7 @@ export default function ClientsPage() {
               </tr>
             </thead>
             <tbody>
-              {clients.map((c) => (
+              {filteredClients.map((c) => (
                 <tr
                   key={c.clientid}
                   className="pf-row"
