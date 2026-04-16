@@ -70,6 +70,7 @@ type Product = {
   productid: number
   sku: string
   productname: string
+  category: string | null
   salesprice: number
   wholesaleprice: number
   reducedwholesaleprice: number
@@ -327,7 +328,7 @@ export default function OrderDetailPage() {
       const term = productSearch.trim()
       const { data, error } = await supabase
         .from('tblproducts')
-        .select('productid, sku, productname, salesprice, wholesaleprice, reducedwholesaleprice, pricingcode, vatstatus, weight, isactive')
+        .select('productid, sku, productname, category, salesprice, wholesaleprice, reducedwholesaleprice, pricingcode, vatstatus, weight, isactive')
         .eq('isactive', true)
         .or(`sku.ilike.%${term}%,productname.ilike.%${term}%`)
         .limit(8)
@@ -341,19 +342,30 @@ export default function OrderDetailPage() {
 
   // ── Get correct price for client ───────────────────────────────
   const getClientPrice = async (product: Product): Promise<number> => {
-    // Check for fixed client pricing first
-    const { data: fixedPrice } = await supabase
+    // Fetch all active pricing rules for this client
+    const { data: pricingRules } = await supabase
       .from('tblclientpricing')
-      .select('fixedprice, pricingcode')
+      .select('pricingtype, fixedprice, pricingcode, category')
       .eq('clientid', order!.clientid)
       .eq('isactive', true)
       .not('fixedprice', 'is', null)
-      .limit(1)
-      .maybeSingle()
 
-    if (fixedPrice?.fixedprice && fixedPrice.pricingcode === product.pricingcode) {
-      return fixedPrice.fixedprice
-    }
+    const rules = pricingRules || []
+
+    // 1. Fixed Category — match on category text
+    const categoryRule = rules.find(
+      (r) => r.pricingtype === 'Fixed Category' &&
+             r.category &&
+             product.category &&
+             r.category.trim().toLowerCase() === product.category.trim().toLowerCase()
+    )
+    if (categoryRule) return categoryRule.fixedprice
+
+    // 2. Fixed PriceBand — match on pricingcode
+    const bandRule = rules.find(
+      (r) => r.pricingtype !== 'Fixed Category' && r.pricingcode === product.pricingcode
+    )
+    if (bandRule) return bandRule.fixedprice
 
     // If product has a price band, use band prices
     if (product.pricingcode) {

@@ -282,6 +282,9 @@ export default function ClientDetailPage() {
         </div>
       </div>
 
+      {/* Pricing rules panel */}
+      <ClientPricingPanel clientid={id} />
+
       {/* Orders panel — full width below columns */}
       <ClientOrdersPanel clientid={id} router={router} />
 
@@ -367,6 +370,195 @@ function ClientOrdersPanel({ clientid, router }: { clientid: string; router: any
             ))}
           </tbody>
         </table>
+      )}
+    </div>
+  )
+}
+
+function ClientPricingPanel({ clientid }: { clientid: string }) {
+  const [rules, setRules] = useState<any[]>([])
+  const [categories, setCategories] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [newRule, setNewRule] = useState({
+    pricingtype: 'Fixed Category',
+    category: '',
+    fixedprice: '',
+    notes: '',
+  })
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('tblclientpricing')
+      .select('clientpricingid, pricingtype, category, pricingcode, fixedprice, isactive, notes')
+      .eq('clientid', clientid)
+      .order('clientpricingid', { ascending: true })
+    setRules(data || [])
+    setLoading(false)
+  }, [clientid])
+
+  useEffect(() => {
+    load()
+    // Load categories for the dropdown
+    supabase
+      .from('tblcategories')
+      .select('categoryname')
+      .order('categoryname')
+      .then(({ data }) => setCategories((data || []).map((c: any) => c.categoryname)))
+  }, [load])
+
+  const handleAdd = async () => {
+    setFormError(null)
+    if (!newRule.category.trim()) { setFormError('Select a category.'); return }
+    const price = parseFloat(newRule.fixedprice)
+    if (isNaN(price) || price <= 0) { setFormError('Enter a valid fixed price.'); return }
+
+    setSaving(true)
+    const { error } = await supabase
+      .from('tblclientpricing')
+      .insert({
+        clientid: parseInt(clientid),
+        pricingtype: 'Fixed Category',
+        category: newRule.category.trim(),
+        fixedprice: price,
+        isactive: true,
+        notes: newRule.notes.trim() || null,
+      })
+
+    if (error) {
+      setFormError('Save failed: ' + error.message)
+    } else {
+      setAdding(false)
+      setNewRule({ pricingtype: 'Fixed Category', category: '', fixedprice: '', notes: '' })
+      await load()
+    }
+    setSaving(false)
+  }
+
+  const toggleActive = async (rule: any) => {
+    await supabase
+      .from('tblclientpricing')
+      .update({ isactive: !rule.isactive })
+      .eq('clientpricingid', rule.clientpricingid)
+    await load()
+  }
+
+  const formatPrice = (n: number) =>
+    new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(n)
+
+  return (
+    <div className="pf-card" style={{ marginTop: '1.5rem' }}>
+      <div className="pf-panel-header">
+        <h2 className="pf-card-title" style={{ marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>
+          Custom Pricing Rules
+        </h2>
+        {!adding && (
+          <button className="pf-btn-secondary" onClick={() => { setAdding(true); setFormError(null) }}>
+            + Add Rule
+          </button>
+        )}
+      </div>
+      <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
+
+      {loading ? (
+        <div className="pf-loading">Loading…</div>
+      ) : (
+        <>
+          {rules.length === 0 && !adding && (
+            <div className="pf-empty">No custom pricing rules for this client.</div>
+          )}
+
+          {rules.length > 0 && (
+            <table className="pf-inner-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Applies To</th>
+                  <th className="pf-col-right">Fixed Price</th>
+                  <th>Notes</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rules.map((r) => (
+                  <tr key={r.clientpricingid} className="pf-row">
+                    <td className="pf-category">{r.pricingtype || '—'}</td>
+                    <td>{r.category || r.pricingcode || '—'}</td>
+                    <td className="pf-col-right pf-price">{r.fixedprice != null ? formatPrice(r.fixedprice) : '—'}</td>
+                    <td className="pf-category" style={{ color: 'var(--text-secondary)' }}>{r.notes || '—'}</td>
+                    <td>
+                      <span className={`pf-badge ${r.isactive ? 'pf-badge-dispatched' : 'pf-badge-cancelled'}`}>
+                        {r.isactive ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        className="pf-btn-secondary"
+                        style={{ padding: '2px 10px', fontSize: '0.8rem' }}
+                        onClick={() => toggleActive(r)}
+                      >
+                        {r.isactive ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {adding && (
+            <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--surface-alt, var(--surface))', borderRadius: 6, border: '1px solid var(--border)' }}>
+              <h3 style={{ margin: '0 0 0.75rem', fontSize: '0.9rem', fontWeight: 600 }}>New Pricing Rule</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                <div className="pf-field">
+                  <label className="pf-label">Category</label>
+                  <select
+                    className="pf-input"
+                    value={newRule.category}
+                    onChange={(e) => setNewRule((p) => ({ ...p, category: e.target.value }))}
+                  >
+                    <option value="">— Select category —</option>
+                    {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="pf-field">
+                  <label className="pf-label">Fixed Price (ex VAT)</label>
+                  <input
+                    className="pf-input pf-input-num"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={newRule.fixedprice}
+                    onChange={(e) => setNewRule((p) => ({ ...p, fixedprice: e.target.value }))}
+                  />
+                </div>
+                <div className="pf-field">
+                  <label className="pf-label">Notes (optional)</label>
+                  <input
+                    className="pf-input"
+                    placeholder="e.g. Agreed May 2026"
+                    value={newRule.notes}
+                    onChange={(e) => setNewRule((p) => ({ ...p, notes: e.target.value }))}
+                  />
+                </div>
+              </div>
+              {formError && <div className="pf-error-inline" style={{ marginBottom: '0.5rem' }}>{formError}</div>}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="pf-btn-primary" onClick={handleAdd} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save Rule'}
+                </button>
+                <button className="pf-btn-secondary" onClick={() => { setAdding(false); setFormError(null) }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
