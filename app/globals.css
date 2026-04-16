@@ -106,6 +106,21 @@ html, body {
   flex-wrap: wrap;
 }
 
+.pf-pagination {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  justify-content: center;
+}
+
+.pf-pagination-info {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  min-width: 8rem;
+  text-align: center;
+}
+
 .pf-input {
   background: var(--surface);
   border: 1px solid var(--border-dark);

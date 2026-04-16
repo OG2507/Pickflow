@@ -332,6 +332,9 @@ export default function OrdersPage() {
   const [exporting, setExporting] = useState(false)
   const [pendingRMCount, setPendingRMCount] = useState<number | null>(null)
   const [exportingRM, setExportingRM] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const PAGE_SIZE = 50
 
   const checkPendingExports = async () => {
     const res = await fetch('/api/quickfile-bulk-export', { method: 'POST' })
@@ -420,12 +423,24 @@ export default function OrdersPage() {
   // Fetch only re-runs when status/source filter changes — not on search
   const fetchOrders = useCallback(async () => {
     setLoading(true)
+    const from = (currentPage - 1) * PAGE_SIZE
+    const to = from + PAGE_SIZE - 1
+
+    let countQuery = supabase
+      .from('tblorders')
+      .select('orderid', { count: 'exact', head: true })
+    if (statusFilter) countQuery = countQuery.eq('status', statusFilter)
+    if (sourceFilter) countQuery = countQuery.eq('ordersource', sourceFilter)
+    const { count } = await countQuery
+    setTotalCount(count || 0)
+
     let query = supabase
       .from('tblorders')
       .select(`orderid, ordernumber, orderdate, ordersource, status, isebay,
         shiptoname, shiptopostcode, subtotal, shippingcost, totalweightg,
         clientid, tblclients (companyname, firstname, lastname)`)
       .order('orderdate', { ascending: false })
+      .range(from, to)
     if (statusFilter) query = query.eq('status', statusFilter)
     if (sourceFilter) query = query.eq('ordersource', sourceFilter)
     const { data } = await query
@@ -439,9 +454,10 @@ export default function OrdersPage() {
       lastname: r.tblclients?.lastname, selected: false,
     })))
     setLoading(false)
-  }, [statusFilter, sourceFilter])
+  }, [statusFilter, sourceFilter, currentPage])
 
   useEffect(() => { fetchOrders() }, [fetchOrders])
+  useEffect(() => { setCurrentPage(1) }, [statusFilter, sourceFilter])
   useEffect(() => { checkPendingExports() }, [])
   useEffect(() => { checkPendingRM() }, [])
 
@@ -555,7 +571,9 @@ export default function OrdersPage() {
           <p className="pf-page-subtitle">
             {loading
               ? '—'
-              : `${orders.length} order${orders.length !== 1 ? 's' : ''}${search ? ` of ${allOrders.length}` : ''}`}
+              : search
+                ? `${orders.length} result${orders.length !== 1 ? 's' : ''} on this page`
+                : `${totalCount} order${totalCount !== 1 ? 's' : ''} · Page ${currentPage} of ${Math.max(1, Math.ceil(totalCount / PAGE_SIZE))}`}
           </p>
         </div>
         <div className="pf-header-actions">
@@ -667,6 +685,28 @@ export default function OrdersPage() {
           </table>
         )}
       </div>
+
+      {!loading && totalCount > PAGE_SIZE && !search && (
+        <div className="pf-pagination">
+          <button
+            className="pf-btn-secondary"
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+          >
+            ← Previous
+          </button>
+          <span className="pf-pagination-info">
+            Page {currentPage} of {Math.ceil(totalCount / PAGE_SIZE)}
+          </span>
+          <button
+            className="pf-btn-secondary"
+            onClick={() => setCurrentPage((p) => Math.min(Math.ceil(totalCount / PAGE_SIZE), p + 1))}
+            disabled={currentPage >= Math.ceil(totalCount / PAGE_SIZE)}
+          >
+            Next →
+          </button>
+        </div>
+      )}
     </div>
   )
 }
