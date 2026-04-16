@@ -550,9 +550,30 @@ export default function OrderDetailPage() {
     const a = document.createElement('a')
     a.href = url
     a.download = `royalmail-${new Date().toISOString().slice(0, 19).replace('T', '-').replace(/:/g, '')}.csv`
+    document.body.appendChild(a)
     a.click()
+    document.body.removeChild(a)
     URL.revokeObjectURL(url)
     // Refresh order to show export timestamp
+    await fetchOrder()
+  }
+
+  const exportToQuickFile = async () => {
+    const res = await fetch(`/api/quickfile-export?orderid=${order!.orderid}`)
+    if (!res.ok) {
+      const data = await res.json()
+      setError(`QuickFile export failed: ${data.error}`)
+      return
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `quickfile-${order!.ordernumber || order!.orderid}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
     await fetchOrder()
   }
 
@@ -1208,13 +1229,12 @@ export default function OrderDetailPage() {
           {/* QuickFile Export — wholesale orders only, after despatch */}
           {(order.status === 'Dispatched' || order.status === 'Invoiced' || order.status === 'Completed') &&
            order.ordersource !== 'Shopwired' && order.ordersource !== 'eBay' && (
-            <a
+            <button
               className="pf-btn-secondary"
-              href={`/api/quickfile-export?orderid=${order.orderid}`}
-              download
+              onClick={exportToQuickFile}
             >
               ↓ QuickFile CSV
-            </a>
+            </button>
           )}
 
           {/* Royal Mail CSV — wholesale Printed orders not yet exported */}

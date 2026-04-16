@@ -14,6 +14,7 @@ function ProductSalesPanel({ sku }: { sku: string }) {
   const [history, setHistory] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [totalUnits, setTotalUnits] = useState(0)
+  const [periodTotals, setPeriodTotals] = useState({ m1: 0, m3: 0, m6: 0, m12: 0, m24: 0 })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -30,6 +31,20 @@ function ProductSalesPanel({ sku }: { sku: string }) {
       b.tblorders.orderdate.localeCompare(a.tblorders.orderdate))
 
     const total = sorted.reduce((s: number, l: any) => s + l.quantityordered, 0)
+
+    const now = Date.now()
+    const unitsInDays = (days: number) => sorted
+      .filter((l: any) => (now - new Date(l.tblorders.orderdate).getTime()) <= days * 24 * 60 * 60 * 1000)
+      .reduce((s: number, l: any) => s + l.quantityordered, 0)
+
+    setPeriodTotals({
+      m1:  unitsInDays(30),
+      m3:  unitsInDays(90),
+      m6:  unitsInDays(180),
+      m12: unitsInDays(365),
+      m24: unitsInDays(730),
+    })
+
     setHistory(sorted.slice(0, 50))
     setTotalUnits(total)
     setLoading(false)
@@ -49,6 +64,26 @@ function ProductSalesPanel({ sku }: { sku: string }) {
         </div>
       </div>
       <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
+      {!loading && (
+        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          {[
+            { label: '1 month', value: periodTotals.m1 },
+            { label: '3 months', value: periodTotals.m3 },
+            { label: '6 months', value: periodTotals.m6 },
+            { label: '12 months', value: periodTotals.m12 },
+            { label: '24 months', value: periodTotals.m24 },
+          ].map(({ label, value }) => (
+            <div key={label} style={{
+              flex: '1 1 80px', textAlign: 'center', padding: '0.5rem 0.75rem',
+              background: 'var(--bg-subtle, #f7f8fa)', borderRadius: 6,
+              border: '1px solid var(--border)',
+            }}>
+              <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--accent)' }}>{value}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: 2 }}>{label}</div>
+            </div>
+          ))}
+        </div>
+      )}
       {loading ? <div className="pf-loading">Loading…</div> : history.length === 0 ? (
         <div className="pf-empty">No sales recorded for this product.</div>
       ) : (
