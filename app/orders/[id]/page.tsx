@@ -949,6 +949,7 @@ export default function OrderDetailPage() {
   // ── Confirm Pick ───────────────────────────────────────────────
   const confirmPick = async () => {
     if (!order) return
+    console.log(`[confirmPick] STARTED — orderid=${order.orderid} lines=${lines.length}`)
     setConfirmingPick(true)
     setPickError(null)
 
@@ -959,11 +960,13 @@ export default function OrderDetailPage() {
       quantityordered: number,
       ordernumber: string
     ): Promise<number> => {
-      const { data: product } = await supabase
+      const { data: product, error: productErr } = await supabase
         .from('tblproducts')
         .select('pickingbintracked, bagsizedefault, isbundle')
         .eq('productid', productid)
         .single()
+
+      console.log(`[confirmPick] productid=${productid} qty=${quantityordered} tracked=${product?.pickingbintracked} bundle=${product?.isbundle} err=${productErr?.message}`)
 
       // If bundle — execute movements for each component.
       // Return quantityordered as bundles don't have their own stock level.
@@ -981,15 +984,20 @@ export default function OrderDetailPage() {
 
       // Untracked — no automatic stock movements. Return the quantity as-is
       // (caller passes quantitypicked, which is assumed correct for untracked products).
-      if (!product?.pickingbintracked) return quantityordered
+      if (!product?.pickingbintracked) {
+        console.log(`[confirmPick] productid=${productid} — UNTRACKED, returning ${quantityordered}`)
+        return quantityordered
+      }
 
       const productBagsize = product?.bagsizedefault || 1
 
-      const { data: stockLevelsRaw } = await supabase
+      const { data: stockLevelsRaw, error: stockErr } = await supabase
         .from('tblstocklevels')
         .select('stocklevelid, quantityonhand, pickpriority, bagsize, locationid, tbllocations(locationtype, pickpriority)')
         .eq('productid', productid)
         .gt('quantityonhand', 0)
+
+      console.log(`[confirmPick] productid=${productid} — stockLevels count=${stockLevelsRaw?.length ?? 'null'} err=${stockErr?.message}`)
 
       if (!stockLevelsRaw) return 0
 
@@ -1059,22 +1067,31 @@ export default function OrderDetailPage() {
       return quantityordered - remaining
     }
 
+    const pickedResults = new Map<number, number>()
+
     for (const line of lines) {
       if (!line.productid) continue
 
-      // Use quantitypicked as set by the picker — either pre-seeded from quantityordered
-      // (untracked assumed in stock) or manually adjusted at the Picking stage.
-      // For tracked products, executePickMovements will recalculate from actual stock
-      // and may return less if stock is genuinely short.
+      // Use quantitypicked as set by the picker — seeded to quantityordered for untracked,
+      // 0 for tracked (confirmPick calculates the real figure from stock).
       const pickedQty = line.quantitypicked ?? line.quantityordered
+      console.log(`[confirmPick] line ${line.orderlineid} sku=${line.sku} quantityordered=${line.quantityordered} quantitypicked=${line.quantitypicked} → pickedQty=${pickedQty}`)
       const actualPicked = await executePickMovements(line.productid, pickedQty, order.ordernumber)
 
-      // Write the actual quantity picked — may be less than ordered if stock was short
       await supabase
         .from('tblorderlines')
         .update({ quantitypicked: actualPicked, status: 'Picked' })
         .eq('orderlineid', line.orderlineid)
+
+      pickedResults.set(line.orderlineid, actualPicked)
     }
+
+    // Update React state so the display immediately shows actual picked quantities
+    setLines((prev) => prev.map((l) =>
+      pickedResults.has(l.orderlineid)
+        ? { ...l, quantitypicked: pickedResults.get(l.orderlineid)!, status: 'Picked' }
+        : l
+    ))
 
     // Advance to Dispatched
     const updates = { status: 'Dispatched', despatchdate: new Date().toISOString() }
@@ -1088,6 +1105,7 @@ export default function OrderDetailPage() {
   // Shopwired and eBay orders skip the modal — labels come from Shopwired directly.
   const handleConfirmPickClick = () => {
     if (!order) return
+    console.log(`[confirmPick] button clicked — ordersource=${order.ordersource} status=${order.status}`)
     const isWholesale = order.ordersource !== 'Shopwired' && order.ordersource !== 'eBay'
     if (isWholesale) {
       setPendingTrackingNumber(order.trackingnumber || '')
@@ -1125,23 +1143,57 @@ export default function OrderDetailPage() {
     await supabase.from('tblorders').update(updates).eq('orderid', id)
     setOrder((prev) => prev ? { ...prev, ...updates } : prev)
 
-    // When advancing to Picking, pre-populate quantitypicked = quantityordered
-    // for any lines still at 0. Zero at this stage means "not yet set", not "out of stock".
-    // For tracked products, confirmPick will recalculate from actual stock.
-    // For untracked products, this is the assumed-in-stock default.
+    // When advancing to Picking, set quantitypicked for all lines:
+    // - Untracked: assume full stock, set to quantityordered
+    // - Tracked: check actual available stock, set to min(available, quantityordered)
     if (nextStatus === 'Picking') {
-      const linesToSeed = lines.filter((l) => l.quantitypicked === 0)
-      if (linesToSeed.length > 0) {
-        await Promise.all(linesToSeed.map((l) =>
-          supabase
-            .from('tblorderlines')
-            .update({ quantitypicked: l.quantityordered })
-            .eq('orderlineid', l.orderlineid)
-        ))
-        setLines((prev) => prev.map((l) =>
-          l.quantitypicked === 0 ? { ...l, quantitypicked: l.quantityordered } : l
-        ))
+      const productIds = [...new Set(lines.map((l) => l.productid).filter(Boolean))]
+
+      // Fetch tracking status for all products
+      const { data: products } = await supabase
+        .from('tblproducts')
+        .select('productid, pickingbintracked')
+        .in('productid', productIds)
+      const trackedMap = new Map<number, boolean>((products || []).map((p: any) => [p.productid, p.pickingbintracked]))
+
+      // Fetch total available stock for all tracked products
+      const trackedProductIds = productIds.filter((pid) => trackedMap.get(pid as number))
+      const stockMap = new Map<number, number>()
+      if (trackedProductIds.length > 0) {
+        const { data: stockLevels } = await supabase
+          .from('tblstocklevels')
+          .select('productid, quantityonhand')
+          .in('productid', trackedProductIds)
+        for (const s of stockLevels || []) {
+          stockMap.set(s.productid, (stockMap.get(s.productid) || 0) + s.quantityonhand)
+        }
       }
+
+      const updatedLines: { orderlineid: number; quantitypicked: number }[] = []
+      for (const line of lines) {
+        if (!line.productid) continue
+        let pickedQty: number
+        if (trackedMap.get(line.productid)) {
+          // Tracked — use available stock, capped at quantity ordered
+          const available = stockMap.get(line.productid) || 0
+          pickedQty = Math.min(available, line.quantityordered)
+        } else {
+          // Untracked — assume full stock
+          pickedQty = line.quantityordered
+        }
+        updatedLines.push({ orderlineid: line.orderlineid, quantitypicked: pickedQty })
+      }
+
+      await Promise.all(updatedLines.map((u) =>
+        supabase
+          .from('tblorderlines')
+          .update({ quantitypicked: u.quantitypicked })
+          .eq('orderlineid', u.orderlineid)
+      ))
+      setLines((prev) => prev.map((l) => {
+        const update = updatedLines.find((u) => u.orderlineid === l.orderlineid)
+        return update ? { ...l, quantitypicked: update.quantitypicked } : l
+      }))
     }
   }
 

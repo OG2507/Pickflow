@@ -545,20 +545,42 @@ export default function OrdersPage() {
     for (const order of printedOrders) {
       await supabase.from('tblorders').update({ status: 'Picking' }).eq('orderid', order.orderid)
     }
-    // Pre-populate quantitypicked = quantityordered for lines still at 0
-    // so untracked products show assumed-in-stock quantity at picking stage
+    // Set quantitypicked for all lines:
+    // - Untracked: assume full stock, set to quantityordered
+    // - Tracked: check actual available stock, set to min(available, quantityordered)
     const { data: pendingLines } = await supabase
       .from('tblorderlines')
-      .select('orderlineid, quantityordered')
+      .select('orderlineid, productid, quantityordered')
       .in('orderid', orderIds)
-      .eq('quantitypicked', 0)
     if (pendingLines && pendingLines.length > 0) {
-      await Promise.all(pendingLines.map((l: any) =>
-        supabase
+      const productIds = [...new Set(pendingLines.map((l: any) => l.productid).filter(Boolean))]
+      const { data: products } = await supabase
+        .from('tblproducts')
+        .select('productid, pickingbintracked')
+        .in('productid', productIds)
+      const trackedMap = new Map<number, boolean>((products || []).map((p: any) => [p.productid, p.pickingbintracked]))
+
+      const trackedProductIds = productIds.filter((pid) => trackedMap.get(pid as number))
+      const stockMap = new Map<number, number>()
+      if (trackedProductIds.length > 0) {
+        const { data: stockLevels } = await supabase
+          .from('tblstocklevels')
+          .select('productid, quantityonhand')
+          .in('productid', trackedProductIds)
+        for (const s of stockLevels || []) {
+          stockMap.set(s.productid, (stockMap.get(s.productid) || 0) + s.quantityonhand)
+        }
+      }
+
+      await Promise.all(pendingLines.map((l: any) => {
+        const pickedQty = trackedMap.get(l.productid)
+          ? Math.min(stockMap.get(l.productid) || 0, l.quantityordered)
+          : l.quantityordered
+        return supabase
           .from('tblorderlines')
-          .update({ quantitypicked: l.quantityordered })
+          .update({ quantitypicked: pickedQty })
           .eq('orderlineid', l.orderlineid)
-      ))
+      }))
     }
     await fetchOrders()
   }
