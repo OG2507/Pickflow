@@ -162,6 +162,8 @@ export default function ProductDetailPage() {
     setSaving(true)
     setError(null)
 
+    const trackingJustEnabled = !product?.pickingbintracked && form.pickingbintracked === true
+
     const { error } = await supabase
       .from('tblproducts')
       .update({ ...form, lastmodified: new Date().toISOString() })
@@ -170,6 +172,29 @@ export default function ProductDetailPage() {
     if (error) {
       setError('Save failed: ' + error.message)
     } else {
+      // If picking bin tracking was just switched on, stamp lastchecked on the picking bin
+      // stock level row. This gives a baseline — we know the quantity was verified at setup.
+      if (trackingJustEnabled) {
+        const { data: binLevel } = await supabase
+          .from('tblstocklevels')
+          .select('stocklevelid')
+          .eq('productid', id)
+          .eq('pickpriority', 0)
+          .maybeSingle()
+
+        if (binLevel) {
+          await supabase
+            .from('tblstocklevels')
+            .update({
+              lastchecked: new Date().toISOString(),
+              lastcheckedby: 'Setup — tracking enabled',
+            })
+            .eq('stocklevelid', binLevel.stocklevelid)
+        }
+      }
+
+      // Update local product state so the flag is reflected without a reload
+      setProduct((prev) => prev ? { ...prev, ...form } : prev)
       setDirty(false)
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)

@@ -3,10 +3,11 @@
 import { usePathname, useRouter } from 'next/navigation'
 
 const TABS = [
-  { label: 'Stock',      href: '/stock' },
-  { label: 'Move',       href: '/stock/move' },
-  { label: 'Adjust',     href: '/stock/adjustment' },
-  { label: 'Movements',  href: '/stock/movements' },
+  { label: 'Stock',        href: '/stock' },
+  { label: 'Move',         href: '/stock/move' },
+  { label: 'Adjust',       href: '/stock/adjustment' },
+  { label: 'Movements',    href: '/stock/movements' },
+  { label: 'Cycle Count',  href: '/stock/cyclecount' },
 ]
 
 export default function StockTabs() {
