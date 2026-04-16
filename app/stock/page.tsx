@@ -63,10 +63,14 @@ export default function StockPage() {
   const [view, setView] = useState<'product' | 'location'>('product')
   const [byProduct, setByProduct] = useState<StockByProduct[]>([])
   const [byLocation, setByLocation] = useState<StockByLocation[]>([])
+  const [rawByProduct, setRawByProduct] = useState<StockByProduct[]>([])
+  const [rawByLocation, setRawByLocation] = useState<StockByLocation[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [lowStockOnly, setLowStockOnly] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 50
 
   // Adjustment modal
   const [adjustTarget, setAdjustTarget] = useState<AdjustTarget | null>(null)
@@ -197,10 +201,23 @@ export default function StockPage() {
       a.locationcode.localeCompare(b.locationcode)
     )
 
-    // Apply search
+    setRawByProduct(productList)
+    setRawByLocation(locationList)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchStock()
+  }, [fetchStock])
+
+  // Apply search and filters client-side — no reload needed
+  useEffect(() => {
+    let productList  = [...rawByProduct]
+    let locationList = [...rawByLocation]
+
     if (search.trim()) {
       const s = search.trim().toLowerCase()
-      productList = productList.filter(
+      productList  = productList.filter(
         (p) => p.sku.toLowerCase().includes(s) || p.productname.toLowerCase().includes(s)
       )
       locationList = locationList.filter(
@@ -213,19 +230,15 @@ export default function StockPage() {
       )
     }
 
-    // Apply low stock filter
     if (lowStockOnly) {
       productList = productList.filter((p) => p.totalstock <= p.reorderlevel)
     }
 
     setByProduct(productList)
     setByLocation(locationList)
-    setLoading(false)
-  }, [lowStockOnly])
-
-  useEffect(() => {
-    fetchStock()
-  }, [fetchStock])
+    setPage(0)
+    setExpandedId(null)
+  }, [search, lowStockOnly, rawByProduct, rawByLocation])
 
   // Auto-expand product if arriving from product page
   useEffect(() => {
@@ -515,7 +528,7 @@ export default function StockPage() {
                 </tr>
               </thead>
               <tbody>
-                {byProduct.map((p) => (
+                {byProduct.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((p) => (
                   <React.Fragment key={p.productid}>
                     <tr
                       className="pf-row"
@@ -614,6 +627,23 @@ export default function StockPage() {
                 ))}
               </tbody>
             </table>
+          )}
+          {/* Pagination */}
+          {byProduct.length > PAGE_SIZE && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 0', justifyContent: 'flex-end' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, byProduct.length)} of {byProduct.length}
+              </span>
+              <button className="pf-btn-secondary" style={{ padding: '4px 12px' }}
+                disabled={page === 0} onClick={() => { setPage(p => p - 1); setExpandedId(null) }}>
+                ← Prev
+              </button>
+              <button className="pf-btn-secondary" style={{ padding: '4px 12px' }}
+                disabled={(page + 1) * PAGE_SIZE >= byProduct.length}
+                onClick={() => { setPage(p => p + 1); setExpandedId(null) }}>
+                Next →
+              </button>
+            </div>
           )}
         </div>
       )}
