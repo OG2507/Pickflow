@@ -453,6 +453,10 @@ export default function OrderDetailPage() {
     await recalculateTotals(newLines, order?.shippingcost || 0)
   }
 
+  // ── Draft quantity state (local display only — committed on blur) ──
+  const [qtyDraft, setQtyDraft] = useState<Record<number, string>>({})
+  const [pickedDraft, setPickedDraft] = useState<Record<number, string>>({})
+
   // ── Update picked quantity (Picking stage only) ────────────────
   // Tracks which lines have been manually adjusted so they can be highlighted.
   const [editedPickedLines, setEditedPickedLines] = useState<Set<number>>(new Set())
@@ -1332,8 +1336,17 @@ export default function OrderDetailPage() {
                               className="pf-input pf-input-sm pf-input-num pf-qty-input"
                               type="number"
                               min="1"
-                              value={line.quantityordered}
-                              onChange={(e) => updateLineQty(line.orderlineid, parseInt(e.target.value) || 1)}
+                              value={qtyDraft[line.orderlineid] ?? line.quantityordered}
+                              onFocus={(e) => {
+                                setQtyDraft((prev) => ({ ...prev, [line.orderlineid]: String(line.quantityordered) }))
+                                e.target.select()
+                              }}
+                              onChange={(e) => setQtyDraft((prev) => ({ ...prev, [line.orderlineid]: e.target.value }))}
+                              onBlur={(e) => {
+                                const qty = parseInt(e.target.value) || 1
+                                setQtyDraft((prev) => { const n = { ...prev }; delete n[line.orderlineid]; return n })
+                                updateLineQty(line.orderlineid, qty)
+                              }}
                             />
                           ) : line.quantityordered}
                         </td>
@@ -1344,8 +1357,17 @@ export default function OrderDetailPage() {
                               type="number"
                               min="0"
                               max={line.quantityordered}
-                              value={line.quantitypicked}
-                              onChange={(e) => updatePickedQty(line.orderlineid, parseInt(e.target.value) ?? 0)}
+                              value={pickedDraft[line.orderlineid] ?? line.quantitypicked}
+                              onFocus={(e) => {
+                                setPickedDraft((prev) => ({ ...prev, [line.orderlineid]: String(line.quantitypicked) }))
+                                e.target.select()
+                              }}
+                              onChange={(e) => setPickedDraft((prev) => ({ ...prev, [line.orderlineid]: e.target.value }))}
+                              onBlur={(e) => {
+                                const qty = parseInt(e.target.value) ?? 0
+                                setPickedDraft((prev) => { const n = { ...prev }; delete n[line.orderlineid]; return n })
+                                updatePickedQty(line.orderlineid, qty)
+                              }}
                               style={wasManuallyEdited ? { borderColor: 'var(--danger, #dc2626)' } : {}}
                             />
                           </td>
