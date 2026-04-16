@@ -96,7 +96,6 @@ export default function StockPage() {
     const { data: levels, error } = await supabase
       .from('tblstocklevels')
       .select('stocklevelid, quantityonhand, pickpriority, productid, locationid')
-      .gt('quantityonhand', 0)
       .order('productid')
 
     if (error) {
@@ -194,9 +193,9 @@ export default function StockPage() {
       })
     }
 
-    let productList = Array.from(productMap.values()).sort((a, b) =>
-      a.sku.localeCompare(b.sku)
-    )
+    let productList = Array.from(productMap.values())
+      .filter((p) => p.totalstock > 0)
+      .sort((a, b) => a.sku.localeCompare(b.sku))
     let locationList = Array.from(locationMap.values()).sort((a, b) =>
       a.locationcode.localeCompare(b.locationcode)
     )
