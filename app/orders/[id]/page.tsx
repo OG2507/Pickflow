@@ -979,7 +979,8 @@ export default function OrderDetailPage() {
         return quantityordered
       }
 
-      // Untracked — no automatic movements, treat as fully picked
+      // Untracked — no automatic stock movements. Return the quantity as-is
+      // (caller passes quantitypicked, which is assumed correct for untracked products).
       if (!product?.pickingbintracked) return quantityordered
 
       const productBagsize = product?.bagsizedefault || 1
@@ -1060,7 +1061,14 @@ export default function OrderDetailPage() {
 
     for (const line of lines) {
       if (!line.productid) continue
-      const actualPicked = await executePickMovements(line.productid, line.quantityordered, order.ordernumber)
+
+      // Use quantitypicked as set by the picker — either pre-seeded from quantityordered
+      // (untracked assumed in stock) or manually adjusted at the Picking stage.
+      // For tracked products, executePickMovements will recalculate from actual stock
+      // and may return less if stock is genuinely short.
+      const pickedQty = line.quantitypicked ?? line.quantityordered
+      const actualPicked = await executePickMovements(line.productid, pickedQty, order.ordernumber)
+
       // Write the actual quantity picked — may be less than ordered if stock was short
       await supabase
         .from('tblorderlines')
