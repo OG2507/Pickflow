@@ -42,6 +42,7 @@ export default function CycleCountPage() {
   const [countState, setCountState]   = useState<CountState | null>(null)
 
   // Filters — all client-side, no reloads
+  const [locationSearch, setLocationSearch] = useState('')
   const [checkedFilter, setCheckedFilter] = useState<'all' | 'never' | 'older'>('never')
   const [olderThanDays, setOlderThanDays] = useState('30')
   const [qtyFilter, setQtyFilter]         = useState<'all' | 'positive' | 'zero'>('positive')
@@ -120,6 +121,7 @@ export default function CycleCountPage() {
 
   // Client-side filtering — instant, no database calls
   const displayRows = allRows.filter((r) => {
+    if (locationSearch.trim() && !r.locationcode.toUpperCase().includes(locationSearch.trim().toUpperCase())) return false
     if (typeFilter !== 'all' && r.locationtype !== typeFilter) return false
     if (priorityFilter && !r.manualpriority) return false
 
@@ -272,6 +274,18 @@ export default function CycleCountPage() {
       {/* Filter bar */}
       <div className="pf-card" style={{ marginBottom: 24 }}>
         <div className="pf-field-row" style={{ flexWrap: 'wrap', gap: '1rem', alignItems: 'flex-end' }}>
+
+          <div className="pf-field" style={{ margin: 0 }}>
+            <label className="pf-label">Location</label>
+            <input
+              className="pf-input pf-input-mono"
+              type="text"
+              placeholder="e.g. OV20"
+              value={locationSearch}
+              onChange={(e) => setLocationSearch(e.target.value.toUpperCase())}
+              style={{ maxWidth: 140 }}
+            />
+          </div>
 
           <div className="pf-field" style={{ margin: 0 }}>
             <label className="pf-label">Checked Status</label>
