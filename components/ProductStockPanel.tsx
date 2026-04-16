@@ -13,6 +13,7 @@ type StockRow = {
   locationcode: string
   locationname: string | null
   locationtype: string | null
+  lastchecked: string | null
 }
 
 export default function ProductStockPanel({ productid }: { productid: number }) {
@@ -25,12 +26,13 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
   const [addError, setAddError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<number | null>(null)
+  const [marking, setMarking] = useState<number | null>(null)
 
   const fetchStock = async () => {
     const { data, error } = await supabase
       .from('tblstocklevels')
       .select(`
-        stocklevelid, quantityonhand, pickpriority, bagsize, locationid,
+        stocklevelid, quantityonhand, pickpriority, bagsize, locationid, lastchecked,
         tbllocations (locationid, locationcode, locationname, locationtype, isactive)
       `)
       .eq('productid', productid)
@@ -49,6 +51,7 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
             locationcode:   r.tbllocations.locationcode,
             locationname:   r.tbllocations.locationname,
             locationtype:   r.tbllocations.locationtype,
+            lastchecked:    r.lastchecked,
           }))
       )
     }
@@ -120,6 +123,20 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
     setShowAdd(false)
     setAdding(false)
     await fetchStock()
+  }
+
+  const markChecked = async (row: StockRow) => {
+    setMarking(row.stocklevelid)
+    const now = new Date().toISOString()
+    await supabase
+      .from('tblstocklevels')
+      .update({ lastchecked: now, lastcheckedby: 'Product page' })
+      .eq('stocklevelid', row.stocklevelid)
+    // Update local state — no full reload needed
+    setStock((prev) =>
+      prev.map((r) => r.stocklevelid === row.stocklevelid ? { ...r, lastchecked: now } : r)
+    )
+    setMarking(null)
   }
 
   const removeLocation = async (stocklevelid: number) => {
@@ -229,16 +246,33 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
                       : '—'}
                   </td>
                   <td>
-                    {row.quantityonhand === 0 && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', justifyContent: 'flex-end' }}>
+                      {row.lastchecked ? (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                          ✓ {new Date(row.lastchecked).toLocaleDateString('en-GB')}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--danger, #c0392b)' }}>Never checked</span>
+                      )}
                       <button
-                        className="pf-btn-deactivate"
-                        style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem' }}
-                        disabled={removing === row.stocklevelid}
-                        onClick={() => removeLocation(row.stocklevelid)}
+                        className="pf-btn-secondary"
+                        style={{ fontSize: '0.7rem', padding: '0.15rem 0.5rem', whiteSpace: 'nowrap' }}
+                        disabled={marking === row.stocklevelid}
+                        onClick={() => markChecked(row)}
                       >
-                        {removing === row.stocklevelid ? '…' : '✕'}
+                        {marking === row.stocklevelid ? '…' : 'Mark Checked'}
                       </button>
-                    )}
+                      {row.quantityonhand === 0 && (
+                        <button
+                          className="pf-btn-deactivate"
+                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem' }}
+                          disabled={removing === row.stocklevelid}
+                          onClick={() => removeLocation(row.stocklevelid)}
+                        >
+                          {removing === row.stocklevelid ? '…' : '✕'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

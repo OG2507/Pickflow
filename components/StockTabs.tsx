@@ -7,6 +7,7 @@ const TABS = [
   { label: 'Move',         href: '/stock/move' },
   { label: 'Adjust',       href: '/stock/adjustment' },
   { label: 'Movements',    href: '/stock/movements' },
+  { label: 'Stock Check',  href: '/stock/check' },
   { label: 'Cycle Count',  href: '/stock/cyclecount' },
 ]
 

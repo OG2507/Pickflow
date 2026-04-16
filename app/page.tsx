@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -158,7 +158,161 @@ export default function HomePage() {
               </button>
             </div>
           </div>
+          {/* Cycle count recommendations */}
+          <CycleCountPanel router={router} />
         </>
+      )}
+    </div>
+  )
+}
+
+type CycleItem = {
+  stocklevelid: number
+  locationcode: string
+  locationtype: string
+  sku: string
+  productname: string
+  quantityonhand: number
+  lastchecked: string | null
+  manualpriority: boolean
+  daysSinceCheck: number
+}
+
+const daysSince = (iso: string | null): number => {
+  if (!iso) return 9999
+  return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function CycleCountPanel({ router }: { router: any }) {
+  const [items, setItems] = useState<CycleItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [neverChecked, setNeverChecked] = useState(0)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+
+    const { data: levels } = await supabase
+      .from('tblstocklevels')
+      .select('stocklevelid, productid, locationid, quantityonhand, lastchecked, manualpriority')
+      .limit(10000)
+
+    if (!levels) { setLoading(false); return }
+
+    const { data: locs } = await supabase
+      .from('tbllocations')
+      .select('locationid, locationcode, locationtype')
+      .in('locationtype', ['Picking Bin', 'Overflow'])
+      .eq('isactive', true)
+
+    const locMap = new Map((locs || []).map((l: any) => [l.locationid, l]))
+    const filtered = levels.filter((l: any) => locMap.has(l.locationid))
+
+    if (filtered.length === 0) { setItems([]); setLoading(false); return }
+
+    const productIds = [...new Set(filtered.map((l: any) => l.productid))]
+    const { data: products } = await supabase
+      .from('tblproducts')
+      .select('productid, sku, productname')
+      .in('productid', productIds)
+
+    const productMap = new Map((products || []).map((p: any) => [p.productid, p]))
+
+    const result: CycleItem[] = filtered.map((l: any) => {
+      const loc = locMap.get(l.locationid)
+      const product = productMap.get(l.productid)
+      const days = daysSince(l.lastchecked)
+      return {
+        stocklevelid:   l.stocklevelid,
+        locationcode:   loc?.locationcode || '—',
+        locationtype:   loc?.locationtype || '—',
+        sku:            product?.sku || '—',
+        productname:    product?.productname || '—',
+        quantityonhand: l.quantityonhand,
+        lastchecked:    l.lastchecked,
+        manualpriority: l.manualpriority ?? false,
+        daysSinceCheck: days,
+      }
+    })
+
+    result.sort((a, b) => {
+      if (a.manualpriority !== b.manualpriority) return a.manualpriority ? -1 : 1
+      return b.daysSinceCheck - a.daysSinceCheck
+    })
+
+    setNeverChecked(result.filter((r) => !r.lastchecked).length)
+    setItems(result.slice(0, 10))
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const formatDate = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleDateString('en-GB') : null
+
+  return (
+    <div className="pf-card" style={{ marginTop: 24 }}>
+      <div className="pf-panel-header">
+        <div>
+          <h2 className="pf-card-title" style={{ marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>
+            Cycle Count — Top 10 Recommendations
+          </h2>
+          {!loading && neverChecked > 0 && (
+            <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--danger, #c0392b)' }}>
+              {neverChecked} location{neverChecked !== 1 ? 's' : ''} never checked
+            </p>
+          )}
+        </div>
+        <button className="pf-btn-secondary" onClick={() => router.push('/stock/cyclecount')}>
+          View All
+        </button>
+      </div>
+      <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
+
+      {loading ? (
+        <div className="pf-loading">Loading…</div>
+      ) : items.length === 0 ? (
+        <div className="pf-empty">No locations to show.</div>
+      ) : (
+        <table className="pf-inner-table">
+          <thead>
+            <tr>
+              <th>Location</th>
+              <th>Type</th>
+              <th>SKU</th>
+              <th>Product</th>
+              <th className="pf-col-right">Qty</th>
+              <th>Last Checked</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr
+                key={item.stocklevelid}
+                className="pf-row"
+                style={item.manualpriority ? { background: 'var(--warning-bg, #fff8e1)' } : undefined}
+                onClick={() => router.push('/stock/cyclecount')}
+              >
+                <td className="pf-sku">{item.locationcode}</td>
+                <td className="pf-category">{item.locationtype}</td>
+                <td className="pf-sku">{item.sku}</td>
+                <td className="pf-productname">{item.productname}</td>
+                <td className="pf-col-right"><strong>{item.quantityonhand}</strong></td>
+                <td className="pf-category">
+                  {item.lastchecked ? (
+                    <>
+                      {formatDate(item.lastchecked)}
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginLeft: 4 }}>
+                        ({item.daysSinceCheck}d ago)
+                      </span>
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--danger, #c0392b)', fontWeight: 600 }}>Never</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   )

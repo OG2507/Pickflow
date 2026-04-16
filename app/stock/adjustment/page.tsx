@@ -13,6 +13,7 @@ type StockRow = {
   quantityonhand: number
   locationcode: string
   locationid: number
+  locationtype: string | null
 }
 
 const REASONS = [
@@ -50,7 +51,7 @@ export default function StockAdjustmentPage() {
     if (searchType === 'location') {
       const { data: loc } = await supabase
         .from('tbllocations')
-        .select('locationid, locationcode')
+        .select('locationid, locationcode, locationtype')
         .eq('locationcode', searchCode.trim().toUpperCase())
         .single()
 
@@ -66,6 +67,7 @@ export default function StockAdjustmentPage() {
       stock = (data || []).map((s: any) => ({
         ...s,
         locationcode: loc.locationcode,
+        locationtype: loc.locationtype || null,
       }))
 
     } else {
@@ -80,7 +82,7 @@ export default function StockAdjustmentPage() {
       const { data } = await supabase
         .from('tblstocklevels')
         .select(`stocklevelid, productid, quantityonhand, locationid,
-          tbllocations (locationcode)`)
+          tbllocations (locationcode, locationtype)`)
         .eq('productid', prod.productid)
         .order('locationid')
 
@@ -90,18 +92,20 @@ export default function StockAdjustmentPage() {
         quantityonhand: s.quantityonhand,
         locationid: s.locationid,
         locationcode: s.tbllocations?.locationcode || '',
+        locationtype: s.tbllocations?.locationtype || null,
         tblproducts: { sku: prod.sku, productname: prod.productname },
       }))
     }
 
     const result: StockRow[] = stock.map((s: any) => ({
-      stocklevelid: s.stocklevelid,
-      productid: s.productid,
-      sku: s.tblproducts?.sku || '',
-      productname: s.tblproducts?.productname || '',
+      stocklevelid:  s.stocklevelid,
+      productid:     s.productid,
+      sku:           s.tblproducts?.sku || '',
+      productname:   s.tblproducts?.productname || '',
       quantityonhand: s.quantityonhand,
-      locationcode: s.locationcode,
-      locationid: s.locationid,
+      locationcode:  s.locationcode,
+      locationid:    s.locationid,
+      locationtype:  s.locationtype || null,
     }))
 
     setRows(result)
@@ -143,6 +147,14 @@ export default function StockAdjustmentPage() {
       reason: adj.reason,
     })
     if (movErr) console.error('Movement insert error:', movErr.message)
+
+    // Stamp lastchecked for Picking Bin locations — adjustment implies a count was done
+    if (row.locationtype === 'Picking Bin') {
+      await supabase
+        .from('tblstocklevels')
+        .update({ lastchecked: new Date().toISOString(), lastcheckedby: 'Stock adjustment' })
+        .eq('stocklevelid', row.stocklevelid)
+    }
 
     // Update local state
     setRows(prev => prev.map(r =>

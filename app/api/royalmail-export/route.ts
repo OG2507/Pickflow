@@ -17,6 +17,7 @@ export async function GET(request: Request) {
       .from('tblorders')
       .select(`
         orderid, ordernumber, orderdate, totalweightg,
+        isblindship,
         shiptoname, shiptoaddress1, shiptoaddress2, shiptoaddress3,
         shiptotown, shiptocounty, shiptopostcode, shiptocountry,
         shippingmethod,
@@ -65,11 +66,30 @@ export async function GET(request: Request) {
 
     for (const order of orders) {
       const client = order.tblclients as any
-      const companyName = client?.companyname || ''
-      const firstName   = client?.firstname || order.shiptoname?.split(' ')[0] || ''
-      const lastName    = client?.lastname || order.shiptoname?.split(' ').slice(1).join(' ') || ''
-      const email       = client?.email || ''
-      const phone       = client?.phone || ''
+
+      // For blind ship orders, the parcel goes to the delivery recipient — not the billing client.
+      // Use shiptoname and shipto address fields only. For non-blind-ship, use client details.
+      let companyName: string
+      let firstName: string
+      let lastName: string
+      let email: string
+      let phone: string
+
+      if (order.isblindship) {
+        // Split shiptoname into first/last as best we can
+        const nameParts = (order.shiptoname || '').trim().split(' ')
+        firstName   = nameParts[0] || ''
+        lastName    = nameParts.slice(1).join(' ') || ''
+        companyName = ''
+        email       = ''
+        phone       = ''
+      } else {
+        companyName = client?.companyname || ''
+        firstName   = client?.firstname || order.shiptoname?.split(' ')[0] || ''
+        lastName    = client?.lastname  || order.shiptoname?.split(' ').slice(1).join(' ') || ''
+        email       = client?.email || ''
+        phone       = client?.phone || ''
+      }
 
       const rate        = order.shippingmethod ? rateMap.get(order.shippingmethod) : null
       const serviceCode = rate?.servicecode || ''
