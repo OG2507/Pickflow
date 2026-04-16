@@ -525,8 +525,24 @@ export default function OrdersPage() {
   const bulkMoveToPicking = async () => {
     const printedOrders = selectedOrders.filter(o => o.status === 'Printed')
     if (printedOrders.length === 0) return
+    const orderIds = printedOrders.map(o => o.orderid)
     for (const order of printedOrders) {
       await supabase.from('tblorders').update({ status: 'Picking' }).eq('orderid', order.orderid)
+    }
+    // Pre-populate quantitypicked = quantityordered for lines still at 0
+    // so untracked products show assumed-in-stock quantity at picking stage
+    const { data: pendingLines } = await supabase
+      .from('tblorderlines')
+      .select('orderlineid, quantityordered')
+      .in('orderid', orderIds)
+      .eq('quantitypicked', 0)
+    if (pendingLines && pendingLines.length > 0) {
+      await Promise.all(pendingLines.map((l: any) =>
+        supabase
+          .from('tblorderlines')
+          .update({ quantitypicked: l.quantityordered })
+          .eq('orderlineid', l.orderlineid)
+      ))
     }
     await fetchOrders()
   }

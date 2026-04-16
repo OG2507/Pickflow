@@ -995,9 +995,13 @@ export default function OrderDetailPage() {
         const fullBags = Math.floor(remaining / bagsize)
         const partial = remaining % bagsize
 
+        // Track running quantity so partial deduction uses the post-full-bags value
+        let ovfQty = ovf.quantityonhand
+
         if (fullBags > 0) {
           const deduct = fullBags * bagsize
-          await supabase.from('tblstocklevels').update({ quantityonhand: ovf.quantityonhand - deduct }).eq('stocklevelid', ovf.stocklevelid)
+          ovfQty -= deduct
+          await supabase.from('tblstocklevels').update({ quantityonhand: ovfQty }).eq('stocklevelid', ovf.stocklevelid)
           await supabase.from('tblstockmovements').insert({
             movementdate: new Date().toISOString(), movementtype: 'PICK',
             productid, fromlocationid: ovf.locationid,
@@ -1008,7 +1012,8 @@ export default function OrderDetailPage() {
 
         if (partial > 0 && remaining > 0) {
           const toBin = bagsize - partial
-          await supabase.from('tblstocklevels').update({ quantityonhand: ovf.quantityonhand - bagsize }).eq('stocklevelid', ovf.stocklevelid)
+          ovfQty -= bagsize
+          await supabase.from('tblstocklevels').update({ quantityonhand: ovfQty }).eq('stocklevelid', ovf.stocklevelid)
           await supabase.from('tblstockmovements').insert({
             movementdate: new Date().toISOString(), movementtype: 'PICK',
             productid, fromlocationid: ovf.locationid,
@@ -1090,6 +1095,25 @@ export default function OrderDetailPage() {
 
     await supabase.from('tblorders').update(updates).eq('orderid', id)
     setOrder((prev) => prev ? { ...prev, ...updates } : prev)
+
+    // When advancing to Picking, pre-populate quantitypicked = quantityordered
+    // for any lines still at 0. Zero at this stage means "not yet set", not "out of stock".
+    // For tracked products, confirmPick will recalculate from actual stock.
+    // For untracked products, this is the assumed-in-stock default.
+    if (nextStatus === 'Picking') {
+      const linesToSeed = lines.filter((l) => l.quantitypicked === 0)
+      if (linesToSeed.length > 0) {
+        await Promise.all(linesToSeed.map((l) =>
+          supabase
+            .from('tblorderlines')
+            .update({ quantitypicked: l.quantityordered })
+            .eq('orderlineid', l.orderlineid)
+        ))
+        setLines((prev) => prev.map((l) =>
+          l.quantitypicked === 0 ? { ...l, quantitypicked: l.quantityordered } : l
+        ))
+      }
+    }
   }
 
   // ── Step back ──────────────────────────────────────────────────
