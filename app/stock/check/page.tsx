@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import StockTabs from '@/components/StockTabs'
 
 type StockCheckRow = {
   locationcode: string
@@ -154,9 +155,7 @@ export default function StockCheckPage() {
     <div className="pf-page">
       <div className="pf-page-header">
         <div>
-          <button className="pf-btn-ghost" onClick={() => router.push('/stock')}>← Stock</button>
-          <h1 className="pf-page-title">Stock Check</h1>
-          <p className="pf-page-subtitle">Generate a stock check sheet for a range of locations</p>
+          <h1 className="pf-page-title">Stock</h1>
         </div>
         {generated && rows.length > 0 && (
           <div className="pf-header-actions">
@@ -164,6 +163,8 @@ export default function StockCheckPage() {
           </div>
         )}
       </div>
+
+      <StockTabs />
 
       {error && (
         <div className="pf-error-banner" style={{ marginBottom: 16 }}>

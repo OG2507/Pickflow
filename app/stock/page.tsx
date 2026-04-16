@@ -87,18 +87,12 @@ export default function StockPage() {
   const fetchStock = useCallback(async () => {
     setLoading(true)
 
-    // Fetch all stock levels with product and location data
-    const { data, error } = await supabase
+    // Fetch stock levels — separate queries for products and locations
+    // (FK joins on tblstocklevels not in Supabase schema cache)
+    const { data: levels, error } = await supabase
       .from('tblstocklevels')
-      .select(`
-        stocklevelid,
-        quantityonhand,
-        pickpriority,
-        productid,
-        locationid,
-        tblproducts (productid, sku, productname, category, reorderlevel, isactive, isbundle),
-        tbllocations (locationid, locationcode, locationname, locationtype, zone, isactive)
-      `)
+      .select('stocklevelid, quantityonhand, pickpriority, productid, locationid')
+      .gt('quantityonhand', 0)
       .order('productid')
 
     if (error) {
@@ -107,15 +101,42 @@ export default function StockPage() {
       return
     }
 
-    const rows = (data || []).filter(
-      (r: any) => r.tblproducts?.isactive && !r.tblproducts?.isbundle && r.tbllocations?.isactive && r.quantityonhand > 0
-    )
+    if (!levels || levels.length === 0) {
+      setByProduct([])
+      setByLocation([])
+      setLoading(false)
+      return
+    }
+
+    // Fetch products and locations in parallel
+    const productIds  = [...new Set(levels.map((l: any) => l.productid))]
+    const locationIds = [...new Set(levels.map((l: any) => l.locationid))]
+
+    const [{ data: products }, { data: locs }] = await Promise.all([
+      supabase
+        .from('tblproducts')
+        .select('productid, sku, productname, category, reorderlevel, isactive, isbundle')
+        .in('productid', productIds),
+      supabase
+        .from('tbllocations')
+        .select('locationid, locationcode, locationname, locationtype, zone, isactive')
+        .in('locationid', locationIds),
+    ])
+
+    const pMap = new Map((products || []).map((p: any) => [p.productid, p]))
+    const lMap = new Map((locs    || []).map((l: any) => [l.locationid, l]))
+
+    const rows = levels.filter((r: any) => {
+      const p = pMap.get(r.productid)
+      const l = lMap.get(r.locationid)
+      return p?.isactive && !p?.isbundle && l?.isactive
+    })
 
     // Build by-product view
     const productMap = new Map<number, StockByProduct>()
     for (const row of rows as any[]) {
-      const p = row.tblproducts
-      const l = row.tbllocations
+      const p = pMap.get(row.productid)
+      const l = lMap.get(row.locationid)
       if (!p || !l) continue
 
       if (!productMap.has(p.productid)) {
@@ -133,19 +154,19 @@ export default function StockPage() {
       const entry = productMap.get(p.productid)!
       entry.totalstock += row.quantityonhand
       entry.locations.push({
-        locationid:    l.locationid,
-        locationcode:  l.locationcode,
-        locationname:  l.locationname,
+        locationid:     l.locationid,
+        locationcode:   l.locationcode,
+        locationname:   l.locationname,
         quantityonhand: row.quantityonhand,
-        pickpriority:  row.pickpriority,
+        pickpriority:   row.pickpriority,
       })
     }
 
     // Build by-location view
     const locationMap = new Map<number, StockByLocation>()
     for (const row of rows as any[]) {
-      const p = row.tblproducts
-      const l = row.tbllocations
+      const p = pMap.get(row.productid)
+      const l = lMap.get(row.locationid)
       if (!p || !l) continue
 
       if (!locationMap.has(l.locationid)) {
@@ -161,11 +182,11 @@ export default function StockPage() {
 
       const entry = locationMap.get(l.locationid)!
       entry.products.push({
-        productid:     p.productid,
-        sku:           p.sku,
-        productname:   p.productname,
+        productid:      p.productid,
+        sku:            p.sku,
+        productname:    p.productname,
         quantityonhand: row.quantityonhand,
-        pickpriority:  row.pickpriority,
+        pickpriority:   row.pickpriority,
       })
     }
 

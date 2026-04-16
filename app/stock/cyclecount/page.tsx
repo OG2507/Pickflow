@@ -45,7 +45,7 @@ export default function CycleCountPage() {
   const [checkedFilter, setCheckedFilter] = useState<'all' | 'never' | 'older'>('never')
   const [olderThanDays, setOlderThanDays] = useState('30')
   const [qtyFilter, setQtyFilter]         = useState<'all' | 'positive' | 'zero'>('positive')
-  const [typeFilter, setTypeFilter]       = useState<'all' | 'Picking Bin' | 'Overflow'>('all')
+  const [typeFilter, setTypeFilter]       = useState<'all' | 'Picking Bin' | 'Overflow'>('Picking Bin')
   const [priorityFilter, setPriorityFilter] = useState(false)
 
   const load = useCallback(async () => {

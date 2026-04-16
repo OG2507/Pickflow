@@ -29,32 +29,41 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
   const [marking, setMarking] = useState<number | null>(null)
 
   const fetchStock = async () => {
-    const { data, error } = await supabase
+    // Separate queries — tblstocklevels → tbllocations FK not in Supabase schema cache
+    const { data: levels, error } = await supabase
       .from('tblstocklevels')
-      .select(`
-        stocklevelid, quantityonhand, pickpriority, bagsize, locationid, lastchecked,
-        tbllocations (locationid, locationcode, locationname, locationtype, isactive)
-      `)
+      .select('stocklevelid, quantityonhand, pickpriority, bagsize, locationid, lastchecked')
       .eq('productid', productid)
       .order('pickpriority')
 
-    if (!error && data) {
-      setStock(
-        (data as any[])
-          .filter((r) => r.tbllocations?.isactive)
-          .map((r) => ({
+    if (error || !levels) { setLoading(false); return }
+
+    const locationIds = levels.map((l: any) => l.locationid)
+    const { data: locs } = await supabase
+      .from('tbllocations')
+      .select('locationid, locationcode, locationname, locationtype, isactive')
+      .in('locationid', locationIds)
+
+    const locMap = new Map((locs || []).map((l: any) => [l.locationid, l]))
+
+    setStock(
+      levels
+        .filter((r: any) => locMap.get(r.locationid)?.isactive)
+        .map((r: any) => {
+          const loc = locMap.get(r.locationid)
+          return {
             stocklevelid:   r.stocklevelid,
             quantityonhand: r.quantityonhand,
             pickpriority:   r.pickpriority,
             bagsize:        r.bagsize,
-            locationid:     r.tbllocations.locationid,
-            locationcode:   r.tbllocations.locationcode,
-            locationname:   r.tbllocations.locationname,
-            locationtype:   r.tbllocations.locationtype,
+            locationid:     r.locationid,
+            locationcode:   loc?.locationcode || '—',
+            locationname:   loc?.locationname || null,
+            locationtype:   loc?.locationtype || null,
             lastchecked:    r.lastchecked,
-          }))
-      )
-    }
+          }
+        })
+    )
     setLoading(false)
   }
 
