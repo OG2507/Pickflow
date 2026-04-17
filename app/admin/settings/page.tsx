@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/lib/activity'
 
 type Setting = {
   settingid: number
@@ -67,11 +68,19 @@ export default function AppSettingsPage() {
     setSaving(true)
     setError(null)
 
+    // Build a map of original values so we only log what actually changed
+    const originals: Record<string, string> = {}
+    for (const s of settings) originals[s.settingkey] = s.settingvalue || ''
+
     for (const key of Object.keys(values)) {
+      const oldVal = originals[key] ?? ''
+      const newVal = values[key] ?? ''
+      if (oldVal === newVal) continue   // unchanged — skip
+
       const { error: err } = await supabase
         .from('tblappsettings')
         .update({
-          settingvalue: values[key],
+          settingvalue: newVal,
           lastmodified: new Date().toISOString(),
           modifiedby: 'admin',
         })
@@ -82,7 +91,20 @@ export default function AppSettingsPage() {
         setSaving(false)
         return
       }
+
+      logActivity({
+        action:      'update',
+        entityType:  'setting',
+        entityId:    key,
+        entityLabel: LABELS[key] || key,
+        fieldName:   'settingvalue',
+        oldValue:    oldVal,
+        newValue:    newVal,
+      })
     }
+
+    // Refresh settings in memory so the "originals" for a subsequent save are correct
+    setSettings((prev) => prev.map(s => ({ ...s, settingvalue: values[s.settingkey] ?? s.settingvalue })))
 
     setSaving(false)
     setDirty(false)

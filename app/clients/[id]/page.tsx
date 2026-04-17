@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { logActivity, logChanges } from '@/lib/activity'
 import type { Client } from '@/lib/types'
 
 const SOURCE_OPTIONS = ['', 'Phone', 'Website', 'Email', 'Referral', 'Trade Show', 'Other']
@@ -65,6 +66,8 @@ export default function ClientDetailPage() {
     setSaving(true)
     setError(null)
 
+    const before = client ? { ...client } : null
+
     const { error } = await supabase
       .from('tblclients')
       .update({ ...form })
@@ -73,6 +76,14 @@ export default function ClientDetailPage() {
     if (error) {
       setError('Save failed: ' + error.message)
     } else {
+      const label = form.companyname?.trim() || `${form.firstname || ''} ${form.lastname || ''}`.trim() || `Client ${id}`
+      logChanges({
+        entityType:  'client',
+        entityId:    id as string,
+        entityLabel: label,
+        before:      before as any,
+        after:       form as any,
+      })
       setDirty(false)
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)
@@ -417,7 +428,7 @@ function ClientPricingPanel({ clientid }: { clientid: string }) {
     if (isNaN(price) || price <= 0) { setFormError('Enter a valid fixed price.'); return }
 
     setSaving(true)
-    const { error } = await supabase
+    const { data: inserted, error } = await supabase
       .from('tblclientpricing')
       .insert({
         clientid: parseInt(clientid),
@@ -427,10 +438,18 @@ function ClientPricingPanel({ clientid }: { clientid: string }) {
         isactive: true,
         notes: newRule.notes.trim() || null,
       })
+      .select('clientpricingid')
+      .single()
 
     if (error) {
       setFormError('Save failed: ' + error.message)
     } else {
+      logActivity({
+        action:      'create',
+        entityType:  'client_pricing',
+        entityId:    inserted?.clientpricingid ?? 'new',
+        entityLabel: `${newRule.category.trim()} — ${formatPrice(price)} — client ${clientid}`,
+      })
       setAdding(false)
       setNewRule({ pricingtype: 'Fixed Category', category: '', fixedprice: '', notes: '' })
       await load()
@@ -439,10 +458,20 @@ function ClientPricingPanel({ clientid }: { clientid: string }) {
   }
 
   const toggleActive = async (rule: any) => {
+    const nextActive = !rule.isactive
     await supabase
       .from('tblclientpricing')
-      .update({ isactive: !rule.isactive })
+      .update({ isactive: nextActive })
       .eq('clientpricingid', rule.clientpricingid)
+    logActivity({
+      action:      'update',
+      entityType:  'client_pricing',
+      entityId:    rule.clientpricingid,
+      entityLabel: `${rule.category} — client ${clientid}`,
+      fieldName:   'isactive',
+      oldValue:    rule.isactive,
+      newValue:    nextActive,
+    })
     await load()
   }
 

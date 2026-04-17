@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/lib/activity'
 
 type OrderRow = {
   orderid: number
@@ -509,6 +510,22 @@ export default function OrdersPage() {
       )
     )
 
+    // Log the status change for each order that was actually advancing
+    for (const order of selectedOrders) {
+      if (order.status !== 'Printed') {
+        logActivity({
+          action:      'update',
+          entityType:  'order',
+          entityId:    order.orderid,
+          entityLabel: order.ordernumber || `Order ${order.orderid}`,
+          fieldName:   'status',
+          oldValue:    order.status,
+          newValue:    'Printed',
+          notes:       'Bulk print',
+        })
+      }
+    }
+
     setPrinting(false)
 
     const printWindow = window.open('', '_blank', 'width=900,height=700')
@@ -544,6 +561,16 @@ export default function OrdersPage() {
     const orderIds = printedOrders.map(o => o.orderid)
     for (const order of printedOrders) {
       await supabase.from('tblorders').update({ status: 'Picking' }).eq('orderid', order.orderid)
+      logActivity({
+        action:      'update',
+        entityType:  'order',
+        entityId:    order.orderid,
+        entityLabel: order.ordernumber || `Order ${order.orderid}`,
+        fieldName:   'status',
+        oldValue:    'Printed',
+        newValue:    'Picking',
+        notes:       'Bulk move to picking',
+      })
     }
     // Set quantitypicked for all lines:
     // - Untracked: assume full stock, set to quantityordered

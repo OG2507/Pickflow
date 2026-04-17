@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { logActivity, logChanges } from '@/lib/activity'
 import type { PricingCode } from '@/lib/types'
 
 const emptyBand = {
@@ -72,21 +73,31 @@ export default function PriceBandsPage() {
     setSaving(true)
     setError(null)
 
+    const before = bands.find(b => b.pricingcodeid === editingId)
+    const after = {
+      pricingcode:           editForm.pricingcode,
+      description:           editForm.description || null,
+      salesprice:            parseFloat(String(editForm.salesprice)) || 0,
+      wholesaleprice:        parseFloat(String(editForm.wholesaleprice)) || 0,
+      reducedwholesaleprice: parseFloat(String(editForm.reducedwholesaleprice)) || 0,
+      isactive:              editForm.isactive,
+    }
+
     const { error } = await supabase
       .from('tblpricingcodes')
-      .update({
-        pricingcode:           editForm.pricingcode,
-        description:           editForm.description || null,
-        salesprice:            parseFloat(String(editForm.salesprice)) || 0,
-        wholesaleprice:        parseFloat(String(editForm.wholesaleprice)) || 0,
-        reducedwholesaleprice: parseFloat(String(editForm.reducedwholesaleprice)) || 0,
-        isactive:              editForm.isactive,
-      })
+      .update(after)
       .eq('pricingcodeid', editingId)
 
     if (error) {
       setError('Save failed: ' + error.message)
     } else {
+      logChanges({
+        entityType:  'price_band',
+        entityId:    editingId,
+        entityLabel: after.pricingcode || before?.pricingcode || `Band ${editingId}`,
+        before:      before as any,
+        after:       after as any,
+      })
       setEditingId(null)
       setEditForm({})
       await fetchBands()
@@ -122,16 +133,19 @@ export default function PriceBandsPage() {
     setSaving(true)
     setError(null)
 
-    const { error } = await supabase
+    const code = newForm.pricingcode.trim().toUpperCase()
+    const { data: inserted, error } = await supabase
       .from('tblpricingcodes')
       .insert({
-        pricingcode:           newForm.pricingcode.trim().toUpperCase(),
+        pricingcode:           code,
         description:           newForm.description.trim() || null,
         salesprice:            parseFloat(newForm.salesprice) || 0,
         wholesaleprice:        parseFloat(newForm.wholesaleprice) || 0,
         reducedwholesaleprice: parseFloat(newForm.reducedwholesaleprice) || 0,
         isactive:              newForm.isactive,
       })
+      .select('pricingcodeid')
+      .single()
 
     if (error) {
       if (error.message.includes('duplicate') || error.message.includes('unique')) {
@@ -140,6 +154,12 @@ export default function PriceBandsPage() {
         setError('Save failed: ' + error.message)
       }
     } else {
+      logActivity({
+        action:      'create',
+        entityType:  'price_band',
+        entityId:    inserted?.pricingcodeid ?? 'new',
+        entityLabel: code,
+      })
       setShowNew(false)
       setNewForm({ ...emptyBand })
       await fetchBands()
@@ -155,13 +175,25 @@ export default function PriceBandsPage() {
 
   // ── Toggle active ──────────────────────────────────────────────
   const toggleActive = async (band: PricingCode) => {
+    const nextActive = !band.isactive
     const { error } = await supabase
       .from('tblpricingcodes')
-      .update({ isactive: !band.isactive })
+      .update({ isactive: nextActive })
       .eq('pricingcodeid', band.pricingcodeid)
 
     if (error) setError(error.message)
-    else await fetchBands()
+    else {
+      logActivity({
+        action:      'update',
+        entityType:  'price_band',
+        entityId:    band.pricingcodeid,
+        entityLabel: band.pricingcode,
+        fieldName:   'isactive',
+        oldValue:    band.isactive,
+        newValue:    nextActive,
+      })
+      await fetchBands()
+    }
   }
 
   return (

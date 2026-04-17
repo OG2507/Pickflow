@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/lib/activity'
 
 type Client = {
   clientid: number
@@ -185,6 +186,14 @@ export default function NewOrderPage() {
       setSaving(false)
       return
     }
+
+    logActivity({
+      action:      'create',
+      entityType:  'order',
+      entityId:    data.orderid,
+      entityLabel: ordernumber,
+      notes:       `Source: ${form.ordersource}`,
+    })
 
     router.push(`/orders/${data.orderid}`)
   }

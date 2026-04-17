@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { logActivity, logChanges } from '@/lib/activity'
 
 type Order = {
   orderid: number
@@ -153,6 +154,7 @@ export default function OrderDetailPage() {
   const id = params.id as string
 
   const [order, setOrder] = useState<Order | null>(null)
+  const [originalOrder, setOriginalOrder] = useState<Order | null>(null)
   const [lines, setLines] = useState<OrderLine[]>([])
   const [shippingRates, setShippingRates] = useState<ShippingRate[]>([])
   const [loading, setLoading] = useState(true)
@@ -188,6 +190,7 @@ export default function OrderDetailPage() {
     }
 
     setOrder(data)
+    setOriginalOrder(data)
 
     // Fetch client pricing flag
     const { data: client } = await supabase
@@ -421,6 +424,12 @@ export default function OrderDetailPage() {
       .single()
 
     if (!error && data) {
+      logActivity({
+        action:      'create',
+        entityType:  'order_line',
+        entityId:    data.orderlineid,
+        entityLabel: `${product.sku} × 1 — ${order?.ordernumber || `Order ${id}`}`,
+      })
       const newLines = [...lines, data]
       setLines(newLines)
       await recalculateTotals(newLines, order.shippingcost || 0)
@@ -435,6 +444,7 @@ export default function OrderDetailPage() {
     const line = lines.find((l) => l.orderlineid === lineId)
     if (!line) return
 
+    const prevQty = line.quantityordered
     const lineTotal = line.unitprice * qty
     const vatAmount = lineTotal * line.vatrate
 
@@ -448,6 +458,18 @@ export default function OrderDetailPage() {
       })
       .eq('orderlineid', lineId)
 
+    if (prevQty !== qty) {
+      logActivity({
+        action:      'update',
+        entityType:  'order_line',
+        entityId:    lineId,
+        entityLabel: `${line.sku} — ${order?.ordernumber || `Order ${id}`}`,
+        fieldName:   'quantityordered',
+        oldValue:    prevQty,
+        newValue:    qty,
+      })
+    }
+
     const newLines = lines.map((l) =>
       l.orderlineid === lineId
         ? { ...l, quantityordered: qty, linetotal: lineTotal, vatamount: vatAmount, linetotalincvat: lineTotal + vatAmount }
@@ -459,7 +481,16 @@ export default function OrderDetailPage() {
 
   // ── Remove line ────────────────────────────────────────────────
   const removeLine = async (lineId: number) => {
+    const line = lines.find((l) => l.orderlineid === lineId)
     await supabase.from('tblorderlines').delete().eq('orderlineid', lineId)
+    if (line) {
+      logActivity({
+        action:      'delete',
+        entityType:  'order_line',
+        entityId:    lineId,
+        entityLabel: `${line.sku} × ${line.quantityordered} — ${order?.ordernumber || `Order ${id}`}`,
+      })
+    }
     const newLines = lines.filter((l) => l.orderlineid !== lineId)
     setLines(newLines)
     await recalculateTotals(newLines, order?.shippingcost || 0)
@@ -504,27 +535,41 @@ export default function OrderDetailPage() {
     setSaving(true)
     setError(null)
 
+    const patch = {
+      requireddate:   order.requireddate,
+      isblindship:    order.isblindship,
+      shiptoname:     order.shiptoname,
+      shiptoaddress1: order.shiptoaddress1,
+      shiptoaddress2: order.shiptoaddress2,
+      shiptoaddress3: order.shiptoaddress3,
+      shiptotown:     order.shiptotown,
+      shiptocounty:   order.shiptocounty,
+      shiptopostcode: order.shiptopostcode,
+      shiptocountry:  order.shiptocountry,
+      trackingnumber: order.trackingnumber,
+      notes:          order.notes,
+    }
+
     const { error } = await supabase
       .from('tblorders')
-      .update({
-        requireddate:   order.requireddate,
-        isblindship:    order.isblindship,
-        shiptoname:     order.shiptoname,
-        shiptoaddress1: order.shiptoaddress1,
-        shiptoaddress2: order.shiptoaddress2,
-        shiptoaddress3: order.shiptoaddress3,
-        shiptotown:     order.shiptotown,
-        shiptocounty:   order.shiptocounty,
-        shiptopostcode: order.shiptopostcode,
-        shiptocountry:  order.shiptocountry,
-        trackingnumber: order.trackingnumber,
-        notes:          order.notes,
-      })
+      .update(patch)
       .eq('orderid', id)
 
     if (error) {
       setError('Save failed: ' + error.message)
     } else {
+      // Diff against the originally loaded state — only logs fields that actually changed
+      if (originalOrder) {
+        logChanges({
+          entityType:  'order',
+          entityId:    id as string,
+          entityLabel: order.ordernumber || `Order ${id}`,
+          before:      originalOrder as any,
+          after:       { ...originalOrder, ...patch } as any,
+        })
+      }
+      // Promote current state to the new baseline for subsequent edits
+      setOriginalOrder(prev => prev ? { ...prev, ...patch } : prev)
       setDirty(false)
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)
@@ -942,8 +987,20 @@ export default function OrderDetailPage() {
     }
 
     // Advance status to Printed
+    const prevStatus = order?.status
     await supabase.from('tblorders').update({ status: 'Printed' }).eq('orderid', id)
     setOrder((prev) => prev ? { ...prev, status: 'Printed' } : prev)
+    if (prevStatus !== 'Printed') {
+      logActivity({
+        action:      'update',
+        entityType:  'order',
+        entityId:    id as string,
+        entityLabel: order?.ordernumber || `Order ${id}`,
+        fieldName:   'status',
+        oldValue:    prevStatus,
+        newValue:    'Printed',
+      })
+    }
   }
 
   // ── Confirm Pick ───────────────────────────────────────────────
@@ -1094,9 +1151,20 @@ export default function OrderDetailPage() {
     ))
 
     // Advance to Dispatched
+    const prevStatusDisp = order.status
     const updates = { status: 'Dispatched', despatchdate: new Date().toISOString() }
     await supabase.from('tblorders').update(updates).eq('orderid', id)
     setOrder((prev) => prev ? { ...prev, ...updates } : prev)
+    logActivity({
+      action:      'update',
+      entityType:  'order',
+      entityId:    id as string,
+      entityLabel: order.ordernumber || `Order ${id}`,
+      fieldName:   'status',
+      oldValue:    prevStatusDisp,
+      newValue:    'Dispatched',
+      notes:       'Confirm Pick',
+    })
     setConfirmingPick(false)
   }
 
@@ -1142,6 +1210,15 @@ export default function OrderDetailPage() {
 
     await supabase.from('tblorders').update(updates).eq('orderid', id)
     setOrder((prev) => prev ? { ...prev, ...updates } : prev)
+    logActivity({
+      action:      'update',
+      entityType:  'order',
+      entityId:    id as string,
+      entityLabel: order.ordernumber || `Order ${id}`,
+      fieldName:   'status',
+      oldValue:    order.status,
+      newValue:    nextStatus,
+    })
 
     // When advancing to Picking, set quantitypicked for all lines:
     // - Untracked: assume full stock, set to quantityordered
@@ -1211,12 +1288,33 @@ export default function OrderDetailPage() {
 
     await supabase.from('tblorders').update(updates).eq('orderid', id)
     setOrder((prev) => prev ? { ...prev, ...updates } : prev)
+    logActivity({
+      action:      'update',
+      entityType:  'order',
+      entityId:    id as string,
+      entityLabel: order.ordernumber || `Order ${id}`,
+      fieldName:   'status',
+      oldValue:    order.status,
+      newValue:    prevStatus,
+      notes:       'Step back',
+    })
   }
 
 
   const cancelOrder = async () => {
+    const prevStatus = order?.status
     await supabase.from('tblorders').update({ status: 'Cancelled' }).eq('orderid', id)
     setOrder((prev) => prev ? { ...prev, status: 'Cancelled' } : prev)
+    logActivity({
+      action:      'update',
+      entityType:  'order',
+      entityId:    id as string,
+      entityLabel: order?.ordernumber || `Order ${id}`,
+      fieldName:   'status',
+      oldValue:    prevStatus,
+      newValue:    'Cancelled',
+      notes:       'Order cancelled',
+    })
   }
 
   const handleOrderChange = (

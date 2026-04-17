@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/lib/activity'
 
 const SOURCE_OPTIONS = ['Phone', 'Website', 'Email', 'Referral', 'Trade Show', 'Other']
 const COUNTRY_OPTIONS = ['United Kingdom', 'Ireland', 'France', 'Germany', 'Spain', 'Italy', 'Netherlands', 'Belgium', 'United States', 'Canada', 'Australia', 'Other']
@@ -123,6 +124,13 @@ export default function NewClientPage() {
       setSaving(false)
       return
     }
+
+    logActivity({
+      action:      'create',
+      entityType:  'client',
+      entityId:    data.clientid,
+      entityLabel: form.companyname?.trim() || `${form.firstname || ''} ${form.lastname || ''}`.trim() || clientcode,
+    })
 
     router.push(`/clients/${data.clientid}`)
   }
