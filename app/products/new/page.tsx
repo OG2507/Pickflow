@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { logActivity } from '@/lib/activity'
 import { useCategories } from '@/lib/useCategories'
 import { usePriceBands } from '@/lib/usePriceBands'
 import type { PricingCode } from '@/lib/types'
@@ -121,6 +122,14 @@ export default function NewProductPage() {
       setSaving(false)
       return
     }
+
+    // Log creation
+    logActivity({
+      action:      'create',
+      entityType:  'product',
+      entityId:    data.productid,
+      entityLabel: form.sku.trim(),
+    })
 
     router.push(`/products/${data.productid}`)
   }

@@ -3,10 +3,15 @@
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 
+function capitalise(s: string): string {
+  if (!s) return ''
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
 type ActivityItem = {
   id: string
   timestamp: string
-  category: 'login' | 'order' | 'stock'
+  category: 'login' | 'order' | 'stock' | 'edit'
   action: string
   detail: string
   reference: string | null
@@ -15,7 +20,7 @@ type ActivityItem = {
 export default function ActivityLogPage() {
   const [items, setItems] = useState<ActivityItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'login' | 'order' | 'stock'>('all')
+  const [filter, setFilter] = useState<'all' | 'login' | 'order' | 'stock' | 'edit'>('all')
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date()
     d.setDate(d.getDate() - 7)
@@ -139,6 +144,41 @@ export default function ActivityLogPage() {
       })
     }
 
+    // Activity log — field-level edits from tblactivitylog
+    const { data: edits } = await supabase
+      .from('tblactivitylog')
+      .select('activityid, activityat, username, action, entitytype, entitylabel, fieldname, oldvalue, newvalue, notes')
+      .gte('activityat', dateFrom)
+      .lte('activityat', dateTo + 'T23:59:59')
+      .order('activityat', { ascending: false })
+      .limit(500)
+
+    for (const e of edits || []) {
+      const ev = e as any
+      const actionLabel =
+        ev.action === 'create' ? `${capitalise(ev.entitytype)} created` :
+        ev.action === 'delete' ? `${capitalise(ev.entitytype)} deleted` :
+        `${capitalise(ev.entitytype)} edited`
+
+      const label = ev.entitylabel ? ` — ${ev.entitylabel}` : ''
+
+      let detail = `${ev.username || 'Unknown'}${label}`
+      if (ev.action === 'update' && ev.fieldname) {
+        const oldV = ev.oldvalue ?? '—'
+        const newV = ev.newvalue ?? '—'
+        detail += ` · ${ev.fieldname}: "${oldV}" → "${newV}"`
+      }
+
+      activity.push({
+        id: `edit-${ev.activityid}`,
+        timestamp: ev.activityat,
+        category: 'edit',
+        action: actionLabel,
+        detail,
+        reference: ev.notes || null,
+      })
+    }
+
     // Sort all by timestamp descending
     activity.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
 
@@ -154,12 +194,14 @@ export default function ActivityLogPage() {
     login: 'pf-badge-printed',
     order: 'pf-badge-dispatched',
     stock: 'pf-badge-invoiced',
+    edit:  'pf-badge-new',
   }
 
   const counts = {
     login: items.filter(i => i.category === 'login').length,
     order: items.filter(i => i.category === 'order').length,
     stock: items.filter(i => i.category === 'stock').length,
+    edit:  items.filter(i => i.category === 'edit').length,
   }
 
   return (
@@ -186,6 +228,7 @@ export default function ActivityLogPage() {
           { key: 'login', label: `Logins (${counts.login})` },
           { key: 'order', label: `Orders (${counts.order})` },
           { key: 'stock', label: `Stock (${counts.stock})` },
+          { key: 'edit',  label: `Edits (${counts.edit})` },
         ].map(f => (
           <button key={f.key}
             className={filter === f.key ? 'pf-btn-primary' : 'pf-btn-secondary'}

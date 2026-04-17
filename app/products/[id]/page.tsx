@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { logChanges } from '@/lib/activity'
 import { useCategories } from '@/lib/useCategories'
 import { usePriceBands } from '@/lib/usePriceBands'
 import ProductStockPanel from '@/components/ProductStockPanel'
@@ -198,6 +199,7 @@ export default function ProductDetailPage() {
     setError(null)
 
     const trackingJustEnabled = !product?.pickingbintracked && form.pickingbintracked === true
+    const before = product ? { ...product } : null
 
     const { error } = await supabase
       .from('tblproducts')
@@ -207,6 +209,15 @@ export default function ProductDetailPage() {
     if (error) {
       setError('Save failed: ' + error.message)
     } else {
+      // Log field-level changes
+      logChanges({
+        entityType:  'product',
+        entityId:    id as string,
+        entityLabel: form.sku || product?.sku || `Product ${id}`,
+        before:      before as any,
+        after:       form as any,
+      })
+
       // If picking bin tracking was just switched on, stamp lastchecked on the picking bin
       // stock level row. This gives a baseline — we know the quantity was verified at setup.
       if (trackingJustEnabled) {
