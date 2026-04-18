@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Git/oceanusgroup/**)",
+      "Bash(npx astro:*)",
+      "Bash(npm run:*)",
+      "Bash(npm --prefix C:/Git/oceanusgroup run build)"
+    ]
+  }
+}
