@@ -4,7 +4,15 @@
       "Read(//c/Git/oceanusgroup/**)",
       "Bash(npx astro:*)",
       "Bash(npm run:*)",
-      "Bash(npm --prefix C:/Git/oceanusgroup run build)"
+      "Bash(npm --prefix C:/Git/oceanusgroup run build)",
+      "WebFetch(domain:oceanusgroup.co.uk)",
+      "WebFetch(domain:webuybusinesses.group)",
+      "WebFetch(domain:synergy-groups.com)",
+      "WebFetch(domain:taliss.co.uk)",
+      "WebFetch(domain:www.webuyanybusiness.co.uk)",
+      "WebFetch(domain:www.logros.co.uk)",
+      "WebFetch(domain:www.cpil.co.uk)",
+      "WebFetch(domain:www.epiris.co.uk)"
     ]
   }
 }
