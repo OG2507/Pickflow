@@ -184,6 +184,17 @@ File: `app/api/sync-shopwired/route.ts`
 - Order numbers: `JKS-${(orderid + 25746).padStart(5, '0')}`
 - Duplicate check on `externalorderref` before inserting
 
+### Products List — Pagination and Filtering
+
+File: `app/products/page.tsx`
+
+- Server-side pagination: 50 rows per page using Supabase `.range()` with `{ count: 'exact' }` for total count
+- Filters (search, category, active) are pushed to the Supabase query — not done in memory
+- Search uses `.or('sku.ilike.%term%,productname.ilike.%term%')`
+- Category dropdown is populated from a separate `tblcategories` query on mount — not derived from the product result set
+- `select('*')` must not be used here — only the 8 rendered columns are fetched: `productid, sku, productname, category, salesprice, costprice, vatstatus, isactive`
+- Any filter change resets `page` to 0 before the next fetch
+
 ### QuickFile and Royal Mail CSV Exports
 
 `tblproducts` join removed from both export routes — schema cache issue. Pricing codes fetched in a separate query using `IN` clause. Apply the same pattern to any new export work.

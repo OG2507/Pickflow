@@ -18,6 +18,9 @@ type PO = {
   notes: string | null
   createdby: string | null
   suppliername: string
+  exchangerate: number | null
+  freightusd: number | null
+  bankchargeusd: number | null
 }
 
 type POLine = {
@@ -105,6 +108,9 @@ export default function PurchaseOrderDetailPage() {
     if (error || !data) { setError('PO not found.'); setLoading(false); return }
 
     setPO({ ...data, suppliername: data.tblsuppliers?.suppliername || '—' })
+    if (data.exchangerate) setExchangeRate(String(data.exchangerate))
+    if (data.freightusd) setFreightUSD(String(data.freightusd))
+    if (data.bankchargeusd) setBankChargeUSD(String(data.bankchargeusd))
 
     // Fetch lines with location info
     const { data: linesData } = await supabase
@@ -269,8 +275,11 @@ export default function PurchaseOrderDetailPage() {
     const { error } = await supabase
       .from('tblpurchaseorders')
       .update({
-        expecteddate: po.expecteddate,
-        notes:        po.notes,
+        expecteddate:  po.expecteddate,
+        notes:         po.notes,
+        exchangerate:  exchangeRate  ? parseFloat(exchangeRate)  : null,
+        freightusd:    freightUSD    ? parseFloat(freightUSD)    : null,
+        bankchargeusd: bankChargeUSD ? parseFloat(bankChargeUSD) : null,
       })
       .eq('poid', id)
 
@@ -429,46 +438,36 @@ export default function PurchaseOrderDetailPage() {
       return
     }
 
+    const eligibleLines = lines.filter((l) => l.unitcostusd > 0)
+
+    if (eligibleLines.length === 0) {
+      setError('Please enter unit costs (USD) on the lines before calculating')
+      return
+    }
+
     setCalculatingLanded(true)
     setError(null)
 
-    // Only calculate for received lines
-    const receivedLines = lines.filter(
-      (l) => l.quantityreceived > 0
+    // Total product cost USD across all priced lines, weighted by quantity ordered
+    const totalProductUSD = eligibleLines.reduce(
+      (sum, l) => sum + l.unitcostusd * l.quantityordered, 0
     )
 
-    if (receivedLines.length === 0) {
-      setError('No received lines to calculate costs for')
-      setCalculatingLanded(false)
-      return
-    }
-
-    // Total product cost USD across received lines
-    const totalProductUSD = receivedLines.reduce(
-      (sum, l) => sum + l.unitcostusd * l.quantityreceived, 0
-    )
-
-    if (totalProductUSD === 0) {
-      setError('Please enter unit costs (USD) on all lines before calculating')
-      setCalculatingLanded(false)
-      return
-    }
-
-    // Calculate landed cost per unit for each received line
-    for (const line of receivedLines) {
-      const lineProdUSD = line.unitcostusd * line.quantityreceived
+    // Calculate landed cost per unit for each eligible line
+    for (const line of eligibleLines) {
+      const lineProdUSD = line.unitcostusd * line.quantityordered
       const proportion = lineProdUSD / totalProductUSD
 
       const lineFreightUSD = freight * proportion
       const lineBankUSD = bank * proportion
       const totalLineUSD = lineProdUSD + lineFreightUSD + lineBankUSD
-      const landedPerUnitGBP = (totalLineUSD / line.quantityreceived) * rate
+      const landedPerUnitGBP = (totalLineUSD / line.quantityordered) * rate
 
       await supabase
         .from('tblpurchaseorderlines')
         .update({
-          unitcost:            line.unitcostusd * rate,
-          landedcostgbp:       landedPerUnitGBP,
+          unitcost:             line.unitcostusd * rate,
+          landedcostgbp:        landedPerUnitGBP,
           landedcostcalculated: true,
         })
         .eq('polineid', line.polineid)
@@ -484,7 +483,12 @@ export default function PurchaseOrderDetailPage() {
     const totalFreightGBP = (freight + bank) * rate
     await supabase
       .from('tblpurchaseorders')
-      .update({ deliverycost: totalFreightGBP })
+      .update({
+        deliverycost:  totalFreightGBP,
+        exchangerate:  rate,
+        freightusd:    freight || null,
+        bankchargeusd: bank    || null,
+      })
       .eq('poid', id)
 
     setLandedSuccess(true)
@@ -726,8 +730,8 @@ export default function PurchaseOrderDetailPage() {
           <div className="pf-card">
             <h2 className="pf-card-title">Landed Cost Calculator</h2>
             <p className="pf-card-note">
-              Enter the exchange rate and additional charges to calculate the landed cost per unit in GBP.
-              This will update the cost price on each product.
+              Enter the exchange rate and any additional charges, then calculate at any time — as soon as you have unit costs, or again if anything changes.
+              Costs are proportioned across all lines by value. Product cost prices are updated on each calculation.
             </p>
 
             <div className="pf-field-row">

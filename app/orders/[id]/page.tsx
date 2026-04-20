@@ -972,6 +972,7 @@ export default function OrderDetailPage() {
       ${order.notes ? `<div style="margin-top:12pt;font-size:9pt"><strong>Notes:</strong> ${order.notes}</div>` : ''}
       <div class="thankyou">
         Thank you for your order. If you have any questions please don't hesitate to get in touch.
+        ${!order.isblindship ? '<div style="margin-top:6pt; font-size:11pt; font-weight:bold;">JKS-BARGAINS.CO.UK</div>' : ''}
       </div>
 
       </body></html>
