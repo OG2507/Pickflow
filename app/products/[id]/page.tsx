@@ -7,6 +7,7 @@ import { logChanges } from '@/lib/activity'
 import { useCategories } from '@/lib/useCategories'
 import { usePriceBands } from '@/lib/usePriceBands'
 import ProductStockPanel from '@/components/ProductStockPanel'
+import ProductOnOrderPanel from '@/components/ProductOnOrderPanel'
 import ProductSuppliersPanel from '@/components/ProductSuppliersPanel'
 import ProductComponentsPanel from '@/components/ProductComponentsPanel'
 import type { Product, PricingCode } from '@/lib/types'
@@ -663,6 +664,9 @@ export default function ProductDetailPage() {
 
           {/* Stock levels panel — not shown for bundles */}
           {product && !product.isbundle && <ProductStockPanel productid={product.productid} />}
+
+          {/* On order panel — active purchase order lines for this product */}
+          {product && !product.isbundle && <ProductOnOrderPanel productid={product.productid} />}
 
           {/* Components panel — only shown for bundles */}
           {product?.isbundle && <ProductComponentsPanel productid={product.productid} />}
