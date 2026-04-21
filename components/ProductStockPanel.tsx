@@ -16,6 +16,16 @@ type StockRow = {
   lastchecked: string | null
 }
 
+type SwapPreview = {
+  otherProductId: number
+  otherSku: string
+  otherProductName: string
+  otherStocklevelid: number
+  otherLocationCode: string
+  thisStocklevelid: number
+  thisLocationCode: string
+}
+
 export default function ProductStockPanel({ productid }: { productid: number }) {
   const router = useRouter()
   const [stock, setStock] = useState<StockRow[]>([])
@@ -27,6 +37,14 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<number | null>(null)
   const [marking, setMarking] = useState<number | null>(null)
+
+  // Swap bin state
+  const [showSwap, setShowSwap] = useState(false)
+  const [swapSku, setSwapSku] = useState('')
+  const [swapPreview, setSwapPreview] = useState<SwapPreview | null>(null)
+  const [swapError, setSwapError] = useState<string | null>(null)
+  const [swapLooking, setSwapLooking] = useState(false)
+  const [swapConfirming, setSwapConfirming] = useState(false)
 
   const fetchStock = async () => {
     // Separate queries — tblstocklevels → tbllocations FK not in Supabase schema cache
@@ -155,6 +173,139 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
     await fetchStock()
   }
 
+  const lookupSwap = async () => {
+    if (!swapSku.trim()) { setSwapError('Enter a SKU'); return }
+    setSwapLooking(true)
+    setSwapError(null)
+    setSwapPreview(null)
+
+    // Find this product's picking bin
+    const thisBin = stock.find(r => r.locationtype === 'Picking Bin')
+    if (!thisBin) {
+      setSwapError('This product has no picking bin assigned')
+      setSwapLooking(false)
+      return
+    }
+
+    // Look up the other product
+    const { data: otherProduct } = await supabase
+      .from('tblproducts')
+      .select('productid, sku, productname')
+      .eq('sku', swapSku.trim().toUpperCase())
+      .single()
+
+    if (!otherProduct) {
+      setSwapError('SKU not found')
+      setSwapLooking(false)
+      return
+    }
+
+    if (otherProduct.productid === productid) {
+      setSwapError('That is this product')
+      setSwapLooking(false)
+      return
+    }
+
+    // Find the other product's picking bin — separate queries, no FK join
+    const { data: otherLevels } = await supabase
+      .from('tblstocklevels')
+      .select('stocklevelid, locationid')
+      .eq('productid', otherProduct.productid)
+
+    if (!otherLevels || otherLevels.length === 0) {
+      setSwapError(`${otherProduct.sku} has no stock locations assigned`)
+      setSwapLooking(false)
+      return
+    }
+
+    const otherLocationIds = otherLevels.map((l: any) => l.locationid)
+    const { data: otherLocs } = await supabase
+      .from('tbllocations')
+      .select('locationid, locationcode, locationtype')
+      .in('locationid', otherLocationIds)
+
+    const otherLocMap = new Map((otherLocs || []).map((l: any) => [l.locationid, l]))
+    const otherBinLevel = otherLevels.find((l: any) => otherLocMap.get(l.locationid)?.locationtype === 'Picking Bin')
+
+    if (!otherBinLevel) {
+      setSwapError(`${otherProduct.sku} has no picking bin assigned`)
+      setSwapLooking(false)
+      return
+    }
+
+    const otherBinLoc = otherLocMap.get(otherBinLevel.locationid)
+
+    setSwapPreview({
+      otherProductId: otherProduct.productid,
+      otherSku: otherProduct.sku,
+      otherProductName: otherProduct.productname,
+      otherStocklevelid: otherBinLevel.stocklevelid,
+      otherLocationCode: otherBinLoc?.locationcode || '—',
+      thisStocklevelid: thisBin.stocklevelid,
+      thisLocationCode: thisBin.locationcode,
+    })
+
+    setSwapLooking(false)
+  }
+
+  const confirmSwap = async () => {
+    if (!swapPreview) return
+    setSwapConfirming(true)
+
+    // Get the location IDs for each bin
+    const { data: thisLocData } = await supabase
+      .from('tbllocations')
+      .select('locationid')
+      .eq('locationcode', swapPreview.thisLocationCode)
+      .single()
+
+    const { data: otherLocData } = await supabase
+      .from('tbllocations')
+      .select('locationid')
+      .eq('locationcode', swapPreview.otherLocationCode)
+      .single()
+
+    if (!thisLocData || !otherLocData) {
+      setSwapError('Could not find location records — swap cancelled')
+      setSwapConfirming(false)
+      return
+    }
+
+    // Swap: set this product's bin row to the other location
+    const { error: e1 } = await supabase
+      .from('tblstocklevels')
+      .update({ locationid: otherLocData.locationid })
+      .eq('stocklevelid', swapPreview.thisStocklevelid)
+
+    // Swap: set other product's bin row to this location
+    const { error: e2 } = await supabase
+      .from('tblstocklevels')
+      .update({ locationid: thisLocData.locationid })
+      .eq('stocklevelid', swapPreview.otherStocklevelid)
+
+    if (e1 || e2) {
+      console.error('Swap error:', e1, e2)
+      setSwapError('Swap failed — check console for details')
+      setSwapConfirming(false)
+      return
+    }
+
+    // Done — reset and reload
+    setShowSwap(false)
+    setSwapSku('')
+    setSwapPreview(null)
+    setSwapError(null)
+    setSwapConfirming(false)
+    await fetchStock()
+  }
+
+  const cancelSwap = () => {
+    setShowSwap(false)
+    setSwapSku('')
+    setSwapPreview(null)
+    setSwapError(null)
+  }
+
   const totalStock = stock.reduce((sum, r) => sum + r.quantityonhand, 0)
 
   return (
@@ -167,6 +318,9 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
           <button className="pf-btn-edit" onClick={() => { setShowAdd(!showAdd); setAddError(null) }}>
             {showAdd ? 'Cancel' : '+ Add Location'}
           </button>
+          <button className="pf-btn-edit" onClick={() => { if (showSwap) { cancelSwap() } else { setShowSwap(true) } }}>
+            {showSwap ? 'Cancel Swap' : '⇄ Swap Bin'}
+          </button>
           <button className="pf-btn-edit" onClick={() => router.push(`/stock?product=${productid}`)}>
             Go to Stock →
           </button>
@@ -174,6 +328,66 @@ export default function ProductStockPanel({ productid }: { productid: number }) 
       </div>
 
       <div style={{ borderBottom: '1px solid var(--border)', marginBottom: '0.875rem', marginTop: '0.75rem' }} />
+
+      {showSwap && (
+        <div style={{ marginBottom: '1rem', padding: '0.875rem', background: 'var(--bg-subtle, var(--surface))', border: '1px solid var(--border)', borderRadius: 6 }}>
+          <div style={{ fontWeight: 600, marginBottom: '0.625rem', fontSize: '0.875rem' }}>Swap Picking Bin</div>
+          {!swapPreview ? (
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div className="pf-field" style={{ margin: 0 }}>
+                <label className="pf-label">Swap bin with SKU</label>
+                <input
+                  className="pf-input pf-input-mono"
+                  style={{ width: 140 }}
+                  placeholder="e.g. B17-01"
+                  value={swapSku}
+                  onChange={(e) => { setSwapSku(e.target.value.toUpperCase()); setSwapError(null) }}
+                  onKeyDown={(e) => e.key === 'Enter' && lookupSwap()}
+                />
+              </div>
+              <button className="pf-btn-primary" onClick={lookupSwap} disabled={swapLooking}>
+                {swapLooking ? 'Looking up…' : 'Look Up'}
+              </button>
+              {swapError && <span className="pf-error-inline">{swapError}</span>}
+            </div>
+          ) : (
+            <div>
+              <div style={{ marginBottom: '0.75rem', fontSize: '0.875rem' }}>
+                <table className="pf-inner-table" style={{ marginBottom: 0 }}>
+                  <thead>
+                    <tr>
+                      <th>SKU</th>
+                      <th>Current Bin</th>
+                      <th>New Bin After Swap</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="pf-sku">{stock.find(r => r.locationtype === 'Picking Bin') ? 'This product' : '—'}</td>
+                      <td className="pf-sku">{swapPreview.thisLocationCode}</td>
+                      <td className="pf-sku" style={{ color: 'var(--accent)' }}>{swapPreview.otherLocationCode}</td>
+                    </tr>
+                    <tr>
+                      <td className="pf-sku">{swapPreview.otherSku}</td>
+                      <td className="pf-sku">{swapPreview.otherLocationCode}</td>
+                      <td className="pf-sku" style={{ color: 'var(--accent)' }}>{swapPreview.thisLocationCode}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                <button className="pf-btn-primary" onClick={confirmSwap} disabled={swapConfirming}>
+                  {swapConfirming ? 'Swapping…' : 'Confirm Swap'}
+                </button>
+                <button className="pf-btn-secondary" onClick={() => { setSwapPreview(null); setSwapSku('') }}>
+                  Back
+                </button>
+                {swapError && <span className="pf-error-inline">{swapError}</span>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {showAdd && (
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', marginBottom: '1rem', flexWrap: 'wrap' }}>
