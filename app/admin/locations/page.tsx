@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 
 type Location = {
@@ -14,6 +14,7 @@ type Location = {
 }
 
 const LOCATION_TYPES = ['Picking Bin', 'Overflow', 'Despatch', 'Returns', 'Other']
+const PAGE_SIZE = 50
 
 const emptyLocation = {
   locationcode: '',
@@ -25,34 +26,71 @@ const emptyLocation = {
 }
 
 export default function LocationsPage() {
-  const [locations, setLocations] = useState<Location[]>([])
-  const [loading, setLoading] = useState(true)
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [editForm, setEditForm] = useState<Partial<Location>>({})
-  const [saving, setSaving] = useState(false)
-  const [showNew, setShowNew] = useState(false)
-  const [newForm, setNewForm] = useState({ ...emptyLocation })
-  const [newErrors, setNewErrors] = useState<Record<string, string>>({})
-  const [error, setError] = useState<string | null>(null)
+  const [locations, setLocations]   = useState<Location[]>([])
+  const [totalCount, setTotalCount] = useState(0)
+  const [page, setPage]             = useState(0)
+  const [loading, setLoading]       = useState(true)
+  const [editingId, setEditingId]   = useState<number | null>(null)
+  const [editForm, setEditForm]     = useState<Partial<Location>>({})
+  const [saving, setSaving]         = useState(false)
+  const [showNew, setShowNew]       = useState(false)
+  const [newForm, setNewForm]       = useState({ ...emptyLocation })
+  const [newErrors, setNewErrors]   = useState<Record<string, string>>({})
+  const [error, setError]           = useState<string | null>(null)
   const [showInactive, setShowInactive] = useState(false)
-  const [search, setSearch] = useState('')
+  const [search, setSearch]         = useState('')
   const [filterType, setFilterType] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const fetchLocations = async () => {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('tbllocations')
-      .select('*')
-      .order('locationcode')
-
-    if (error) setError(error.message)
-    else setLocations(data || [])
-    setLoading(false)
+  const handleSearchChange = (val: string) => {
+    setSearch(val)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => {
+      setDebouncedSearch(val)
+      setPage(0)
+    }, 300)
   }
 
+  // ── Server-side fetch ──────────────────────────────────────────
+  const fetchLocations = useCallback(async (pageNum: number) => {
+    setLoading(true)
+    setError(null)
+
+    const from = pageNum * PAGE_SIZE
+    const to   = from + PAGE_SIZE - 1
+
+    let query = supabase
+      .from('tbllocations')
+      .select('*', { count: 'exact' })
+      .order('locationcode')
+      .range(from, to)
+
+    if (!showInactive) query = query.eq('isactive', true)
+    if (filterType)    query = query.eq('locationtype', filterType)
+    if (debouncedSearch.trim()) {
+      const s = debouncedSearch.trim()
+      query = query.or(
+        `locationcode.ilike.%${s}%,locationname.ilike.%${s}%,zone.ilike.%${s}%`
+      )
+    }
+
+    const { data, error, count } = await query
+
+    if (error) {
+      setError(error.message)
+    } else {
+      setLocations(data || [])
+      setTotalCount(count || 0)
+    }
+    setLoading(false)
+  }, [showInactive, filterType, debouncedSearch])
+
   useEffect(() => {
-    fetchLocations()
-  }, [])
+    fetchLocations(page)
+  }, [fetchLocations, page])
+
+  useEffect(() => { setPage(0) }, [showInactive, filterType])
 
   // ── Edit existing ──────────────────────────────────────────────
   const startEdit = (loc: Location) => {
@@ -61,20 +99,12 @@ export default function LocationsPage() {
     setShowNew(false)
   }
 
-  const cancelEdit = () => {
-    setEditingId(null)
-    setEditForm({})
-  }
+  const cancelEdit = () => { setEditingId(null); setEditForm({}) }
 
-  const handleEditChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target
     const checked = (e.target as HTMLInputElement).checked
-    setEditForm((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }))
+    setEditForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }))
   }
 
   const saveEdit = async () => {
@@ -97,41 +127,32 @@ export default function LocationsPage() {
     if (error) {
       setError('Save failed: ' + error.message)
     } else {
+      const updated: Location = {
+        locationid:   editingId,
+        locationcode: editForm.locationcode!,
+        locationname: editForm.locationname || null,
+        locationtype: editForm.locationtype || null,
+        zone:         editForm.zone || null,
+        isactive:     editForm.isactive ?? true,
+        pickpriority: parseInt(String(editForm.pickpriority)) || 0,
+      }
+      setLocations((prev) => prev.map((l) => l.locationid === editingId ? updated : l))
       setEditingId(null)
       setEditForm({})
-      await fetchLocations()
     }
     setSaving(false)
   }
 
   // ── New location ───────────────────────────────────────────────
-  const handleNewChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const handleNewChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target
     const checked = (e.target as HTMLInputElement).checked
-    setNewForm((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }))
-    if (newErrors[name]) {
-      setNewErrors((prev) => ({ ...prev, [name]: '' }))
-    }
-  }
-
-  const validateNew = () => {
-    const errors: Record<string, string> = {}
-    if (!newForm.locationcode.trim()) errors.locationcode = 'Code is required'
-    return errors
+    setNewForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }))
+    if (newErrors[name]) setNewErrors((prev) => ({ ...prev, [name]: '' }))
   }
 
   const saveNew = async () => {
-    const errors = validateNew()
-    if (Object.keys(errors).length > 0) {
-      setNewErrors(errors)
-      return
-    }
-
+    if (!newForm.locationcode.trim()) { setNewErrors({ locationcode: 'Code is required' }); return }
     setSaving(true)
     setError(null)
 
@@ -155,16 +176,12 @@ export default function LocationsPage() {
     } else {
       setShowNew(false)
       setNewForm({ ...emptyLocation })
-      await fetchLocations()
+      await fetchLocations(page)
     }
     setSaving(false)
   }
 
-  const cancelNew = () => {
-    setShowNew(false)
-    setNewForm({ ...emptyLocation })
-    setNewErrors({})
-  }
+  const cancelNew = () => { setShowNew(false); setNewForm({ ...emptyLocation }); setNewErrors({}) }
 
   const toggleActive = async (loc: Location) => {
     const { error } = await supabase
@@ -172,34 +189,29 @@ export default function LocationsPage() {
       .update({ isactive: !loc.isactive })
       .eq('locationid', loc.locationid)
 
-    if (error) setError(error.message)
-    else await fetchLocations()
+    if (error) {
+      setError(error.message)
+    } else if (!showInactive && loc.isactive) {
+      // Deactivated while hiding inactive — remove from current page
+      setLocations((prev) => prev.filter((l) => l.locationid !== loc.locationid))
+      setTotalCount((c) => c - 1)
+    } else {
+      setLocations((prev) => prev.map((l) => l.locationid === loc.locationid ? { ...l, isactive: !l.isactive } : l))
+    }
   }
 
-  const filteredLocations = locations.filter((loc) => {
-    if (!showInactive && !loc.isactive) return false
-    if (filterType && loc.locationtype !== filterType) return false
-    if (search) {
-      const s = search.toLowerCase()
-      if (
-        !loc.locationcode.toLowerCase().includes(s) &&
-        !(loc.locationname || '').toLowerCase().includes(s) &&
-        !(loc.zone || '').toLowerCase().includes(s)
-      ) return false
-    }
-    return true
-  })
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE)
+  const pageStart  = totalCount === 0 ? 0 : page * PAGE_SIZE + 1
+  const pageEnd    = Math.min((page + 1) * PAGE_SIZE, totalCount)
 
   return (
     <div className="pf-page">
       <div className="pf-page-header">
         <div>
-          <button className="pf-back" onClick={() => window.history.back()}>
-            ← Admin
-          </button>
+          <button className="pf-back" onClick={() => window.history.back()}>← Admin</button>
           <h1 className="pf-page-title">Locations</h1>
           <p className="pf-page-subtitle">
-            {loading ? '—' : `${filteredLocations.length} of ${locations.filter(l => showInactive || l.isactive).length} location${locations.length !== 1 ? 's' : ''}`}
+            {loading ? '—' : totalCount === 0 ? 'No locations' : `${pageStart}–${pageEnd} of ${totalCount}`}
           </p>
         </div>
         <div className="pf-header-actions">
@@ -208,31 +220,17 @@ export default function LocationsPage() {
             type="search"
             placeholder="Search code, name, zone…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
           />
-          <select
-            className="pf-select"
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-          >
+          <select className="pf-select" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
             <option value="">All types</option>
-            {LOCATION_TYPES.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
+            {LOCATION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
           <label className="pf-toggle-label">
-            <input
-              type="checkbox"
-              checked={showInactive}
-              onChange={(e) => setShowInactive(e.target.checked)}
-            />
+            <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
             Show inactive
           </label>
-          <button
-            className="pf-btn-primary"
-            onClick={() => { setShowNew(true); setEditingId(null) }}
-            disabled={showNew}
-          >
+          <button className="pf-btn-primary" onClick={() => { setShowNew(true); setEditingId(null) }} disabled={showNew}>
             + New Location
           </button>
         </div>
@@ -249,54 +247,29 @@ export default function LocationsPage() {
               <label className="pf-label">Code <span className="pf-required">*</span></label>
               <input
                 className={`pf-input pf-input-mono ${newErrors.locationcode ? 'pf-input-error' : ''}`}
-                name="locationcode"
-                value={newForm.locationcode}
-                onChange={handleNewChange}
-                placeholder="e.g. BIN-B01"
-                autoFocus
+                name="locationcode" value={newForm.locationcode} onChange={handleNewChange}
+                placeholder="e.g. BIN-B01" autoFocus
               />
               {newErrors.locationcode && <span className="pf-field-error">{newErrors.locationcode}</span>}
             </div>
             <div className="pf-field">
               <label className="pf-label">Name</label>
-              <input
-                className="pf-input"
-                name="locationname"
-                value={newForm.locationname}
-                onChange={handleNewChange}
-                placeholder="e.g. Picking Bin B01"
-              />
+              <input className="pf-input" name="locationname" value={newForm.locationname} onChange={handleNewChange} placeholder="e.g. Picking Bin B01" />
             </div>
             <div className="pf-field">
               <label className="pf-label">Type</label>
               <select className="pf-input" name="locationtype" value={newForm.locationtype} onChange={handleNewChange}>
                 <option value="">— Select type —</option>
-                {LOCATION_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
+                {LOCATION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div className="pf-field">
               <label className="pf-label">Zone</label>
-              <input
-                className="pf-input"
-                name="zone"
-                value={newForm.zone}
-                onChange={handleNewChange}
-                placeholder="e.g. Main Warehouse"
-              />
+              <input className="pf-input" name="zone" value={newForm.zone} onChange={handleNewChange} placeholder="e.g. Main Warehouse" />
             </div>
             <div className="pf-field">
               <label className="pf-label">Pick Priority</label>
-              <input
-                className="pf-input pf-input-num"
-                type="number"
-                min="0"
-                name="pickpriority"
-                value={newForm.pickpriority}
-                onChange={handleNewChange}
-                placeholder="0 = pick first"
-              />
+              <input className="pf-input pf-input-num" type="number" min="0" name="pickpriority" value={newForm.pickpriority} onChange={handleNewChange} />
               <span style={{ fontSize: '0.75rem', color: 'var(--text-faint)', marginTop: '0.2rem', display: 'block' }}>
                 0 = picking bin (first), 1 = overflow, 99 = goods in (never picked)
               </span>
@@ -304,9 +277,7 @@ export default function LocationsPage() {
           </div>
           <div className="pf-band-form-actions">
             <button className="pf-btn-secondary" onClick={cancelNew}>Cancel</button>
-            <button className="pf-btn-primary" onClick={saveNew} disabled={saving}>
-              {saving ? 'Saving…' : 'Save Location'}
-            </button>
+            <button className="pf-btn-primary" onClick={saveNew} disabled={saving}>{saving ? 'Saving…' : 'Save Location'}</button>
           </div>
         </div>
       )}
@@ -315,8 +286,8 @@ export default function LocationsPage() {
       <div className="pf-table-wrap">
         {loading ? (
           <div className="pf-loading">Loading locations…</div>
-        ) : filteredLocations.length === 0 ? (
-          <div className="pf-empty">{locations.length === 0 ? 'No locations found.' : 'No locations match your search.'}</div>
+        ) : locations.length === 0 ? (
+          <div className="pf-empty">No locations match your search.</div>
         ) : (
           <table className="pf-table">
             <thead>
@@ -331,71 +302,27 @@ export default function LocationsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredLocations.map((loc) =>
+              {locations.map((loc) =>
                 editingId === loc.locationid ? (
                   <tr key={loc.locationid} className="pf-row-editing">
+                    <td><input className="pf-input pf-input-sm pf-input-mono" name="locationcode" value={editForm.locationcode || ''} onChange={handleEditChange} /></td>
+                    <td><input className="pf-input pf-input-sm" name="locationname" value={editForm.locationname || ''} onChange={handleEditChange} /></td>
                     <td>
-                      <input
-                        className="pf-input pf-input-sm pf-input-mono"
-                        name="locationcode"
-                        value={editForm.locationcode || ''}
-                        onChange={handleEditChange}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        className="pf-input pf-input-sm"
-                        name="locationname"
-                        value={editForm.locationname || ''}
-                        onChange={handleEditChange}
-                      />
-                    </td>
-                    <td>
-                      <select
-                        className="pf-input pf-input-sm"
-                        name="locationtype"
-                        value={editForm.locationtype || ''}
-                        onChange={handleEditChange}
-                      >
+                      <select className="pf-input pf-input-sm" name="locationtype" value={editForm.locationtype || ''} onChange={handleEditChange}>
                         <option value="">—</option>
-                        {LOCATION_TYPES.map((t) => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
+                        {LOCATION_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </td>
-                    <td>
-                      <input
-                        className="pf-input pf-input-sm"
-                        name="zone"
-                        value={editForm.zone || ''}
-                        onChange={handleEditChange}
-                      />
+                    <td><input className="pf-input pf-input-sm" name="zone" value={editForm.zone || ''} onChange={handleEditChange} /></td>
+                    <td className="pf-col-center">
+                      <input className="pf-input pf-input-sm pf-input-num" style={{ width: '60px' }} type="number" min="0" name="pickpriority" value={editForm.pickpriority ?? 0} onChange={handleEditChange} />
                     </td>
                     <td className="pf-col-center">
-                      <input
-                        className="pf-input pf-input-sm pf-input-num"
-                        style={{ width: '60px' }}
-                        type="number"
-                        min="0"
-                        name="pickpriority"
-                        value={editForm.pickpriority ?? 0}
-                        onChange={handleEditChange}
-                      />
-                    </td>
-                    <td className="pf-col-center">
-                      <input
-                        type="checkbox"
-                        name="isactive"
-                        checked={editForm.isactive ?? true}
-                        onChange={handleEditChange}
-                        style={{ accentColor: 'var(--accent)' }}
-                      />
+                      <input type="checkbox" name="isactive" checked={editForm.isactive ?? true} onChange={handleEditChange} style={{ accentColor: 'var(--accent)' }} />
                     </td>
                     <td>
                       <div className="pf-row-actions">
-                        <button className="pf-btn-save" onClick={saveEdit} disabled={saving}>
-                          {saving ? '…' : 'Save'}
-                        </button>
+                        <button className="pf-btn-save" onClick={saveEdit} disabled={saving}>{saving ? '…' : 'Save'}</button>
                         <button className="pf-btn-cancel-sm" onClick={cancelEdit}>Cancel</button>
                       </div>
                     </td>
@@ -428,6 +355,19 @@ export default function LocationsPage() {
           </table>
         )}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="pf-pagination">
+          <button className="pf-btn-secondary" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page === 0 || loading}>
+            ← Prev
+          </button>
+          <span className="pf-pagination-info">Page {page + 1} of {totalPages}</span>
+          <button className="pf-btn-secondary" onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1 || loading}>
+            Next →
+          </button>
+        </div>
+      )}
     </div>
   )
 }

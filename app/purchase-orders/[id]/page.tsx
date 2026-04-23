@@ -89,11 +89,11 @@ export default function PurchaseOrderDetailPage() {
   const [landedSuccess, setLandedSuccess] = useState(false)
 
   // Goods receipt modal
-  const [receiptLine, setReceiptLine] = useState<POLine | null>(null)
-  const [receiptQty, setReceiptQty] = useState('')
-  const [receiptLocationId, setReceiptLocationId] = useState('')
+  type ReceiptRow = { id: number; qty: string; locationId: string }
+  const [receiptLine, setReceiptLine]     = useState<POLine | null>(null)
+  const [receiptRows, setReceiptRows]     = useState<ReceiptRow[]>([])
   const [receiptSaving, setReceiptSaving] = useState(false)
-  const [receiptError, setReceiptError] = useState<string | null>(null)
+  const [receiptError, setReceiptError]   = useState<string | null>(null)
 
   // Putaway list modal
   const [showPutaway, setShowPutaway] = useState(false)
@@ -316,89 +316,109 @@ export default function PurchaseOrderDetailPage() {
 
   // ── Goods receipt ──────────────────────────────────────────────
   const openReceipt = (line: POLine) => {
+    const outstanding = line.quantityordered - line.quantityreceived
     setReceiptLine(line)
-    setReceiptQty(String(line.quantityordered - line.quantityreceived))
-    setReceiptLocationId(line.delivertolocationid ? String(line.delivertolocationid) : '')
+    setReceiptRows([{
+      id: 1,
+      qty: outstanding > 0 ? String(outstanding) : '',
+      locationId: line.delivertolocationid ? String(line.delivertolocationid) : '',
+    }])
     setReceiptError(null)
   }
 
   const closeReceipt = () => {
     setReceiptLine(null)
-    setReceiptQty('')
-    setReceiptLocationId('')
+    setReceiptRows([])
     setReceiptError(null)
+  }
+
+  const addReceiptRow = () => {
+    setReceiptRows((prev) => [...prev, { id: Date.now(), qty: '', locationId: '' }])
+  }
+
+  const updateReceiptRow = (id: number, field: 'qty' | 'locationId', value: string) => {
+    setReceiptRows((prev) => prev.map((r) => r.id === id ? { ...r, [field]: value } : r))
+  }
+
+  const removeReceiptRow = (id: number) => {
+    setReceiptRows((prev) => prev.filter((r) => r.id !== id))
   }
 
   const saveReceipt = async () => {
     if (!receiptLine || !po) return
-    const qty = parseInt(receiptQty)
-    if (isNaN(qty) || qty <= 0) { setReceiptError('Enter a valid quantity'); return }
-    if (!receiptLocationId) { setReceiptError('Select a goods-in location'); return }
+    if (receiptRows.length === 0) { setReceiptError('Add at least one receipt row'); return }
+    for (const row of receiptRows) {
+      const qty = parseInt(row.qty)
+      if (isNaN(qty) || qty <= 0) { setReceiptError('All rows must have a valid quantity greater than zero'); return }
+      if (!row.locationId) { setReceiptError('All rows must have a location selected'); return }
+    }
 
-    const locationId = parseInt(receiptLocationId)
     setReceiptSaving(true)
+    setReceiptError(null)
 
-    const newReceived = receiptLine.quantityreceived + qty
-    const lineStatus = newReceived >= receiptLine.quantityordered ? 'Received' : 'Partial'
+    const totalQtyThisReceipt = receiptRows.reduce((sum, r) => sum + (parseInt(r.qty) || 0), 0)
+    const newReceived = receiptLine.quantityreceived + totalQtyThisReceipt
+    const lineStatus = newReceived > receiptLine.quantityordered ? 'Over-received'
+                     : newReceived >= receiptLine.quantityordered ? 'Received'
+                     : 'Partial'
 
-    // Update PO line
     await supabase
       .from('tblpurchaseorderlines')
       .update({
         quantityreceived:    newReceived,
-        delivertolocationid: locationId,
+        delivertolocationid: parseInt(receiptRows[0].locationId),
         status:              lineStatus,
       })
       .eq('polineid', receiptLine.polineid)
 
-    // Update stock levels — add to goods-in location
-    const { data: existing } = await supabase
-      .from('tblstocklevels')
-      .select('stocklevelid, quantityonhand')
-      .eq('productid', receiptLine.productid)
-      .eq('locationid', locationId)
-      .maybeSingle()
+    for (const row of receiptRows) {
+      const qty = parseInt(row.qty)
+      const locationId = parseInt(row.locationId)
 
-    if (existing) {
-      await supabase
+      const { data: existing } = await supabase
         .from('tblstocklevels')
-        .update({ quantityonhand: existing.quantityonhand + qty })
-        .eq('stocklevelid', existing.stocklevelid)
-    } else {
-      // Get pick priority from location
-      const { data: locData } = await supabase
-        .from('tbllocations')
-        .select('pickpriority')
+        .select('stocklevelid, quantityonhand')
+        .eq('productid', receiptLine.productid)
         .eq('locationid', locationId)
-        .single()
+        .maybeSingle()
+
+      if (existing) {
+        await supabase
+          .from('tblstocklevels')
+          .update({ quantityonhand: existing.quantityonhand + qty })
+          .eq('stocklevelid', existing.stocklevelid)
+      } else {
+        const { data: locData } = await supabase
+          .from('tbllocations')
+          .select('pickpriority')
+          .eq('locationid', locationId)
+          .single()
+
+        await supabase
+          .from('tblstocklevels')
+          .insert({
+            productid:      receiptLine.productid,
+            locationid:     locationId,
+            quantityonhand: qty,
+            bagsize:        0,
+            pickpriority:   locData?.pickpriority ?? 0,
+          })
+      }
 
       await supabase
-        .from('tblstocklevels')
+        .from('tblstockmovements')
         .insert({
-          productid:      receiptLine.productid,
-          locationid:     locationId,
-          quantityonhand: qty,
-          bagsize:        0,
-          pickpriority:   locData?.pickpriority ?? 0,
+          movementdate:  new Date().toISOString(),
+          movementtype:  'GOODS IN',
+          productid:     receiptLine.productid,
+          tolocationid:  locationId,
+          quantity:      qty,
+          reference:     po.ponumber,
+          reason:        'Goods received',
+          createdby:     'system',
         })
     }
 
-    // Log stock movement
-    const loc = goodsInLocations.find((l) => l.locationid === locationId)
-    await supabase
-      .from('tblstockmovements')
-      .insert({
-        movementdate:  new Date().toISOString(),
-        movementtype:  'GOODS IN',
-        productid:     receiptLine.productid,
-        tolocationid:  locationId,
-        quantity:      qty,
-        reference:     po.ponumber,
-        reason:        'Goods received',
-        createdby:     'system',
-      })
-
-    // Update PO status to Partial if not already Received
     const allLines = await supabase
       .from('tblpurchaseorderlines')
       .select('status')
@@ -407,9 +427,9 @@ export default function PurchaseOrderDetailPage() {
     const updatedLines = (allLines.data || []).map((l: any) =>
       l.polineid === receiptLine.polineid ? { status: lineStatus } : l
     )
-    const allReceived = updatedLines.every((l: any) => l.status === 'Received')
+    const allReceived = updatedLines.every((l: any) => l.status === 'Received' || l.status === 'Over-received')
     const anyReceived = updatedLines.some((l: any) =>
-      l.status === 'Received' || l.status === 'Partial'
+      l.status === 'Received' || l.status === 'Partial' || l.status === 'Over-received'
     )
 
     const newPOStatus = allReceived ? 'Received' :
@@ -747,9 +767,18 @@ export default function PurchaseOrderDetailPage() {
                         ) : line.quantityordered}
                       </td>
                       <td className="pf-col-right">
-                        <span className={line.quantityreceived >= line.quantityordered ? 'pf-diff-pos' : ''}>
-                          {line.quantityreceived}
-                        </span>
+                        {line.quantityreceived > line.quantityordered ? (
+                          <span style={{ color: 'var(--warning, #b45309)', fontWeight: 600 }}>
+                            {line.quantityreceived}
+                            <span style={{ fontSize: '0.75rem', marginLeft: '0.3rem' }}>
+                              (+{line.quantityreceived - line.quantityordered})
+                            </span>
+                          </span>
+                        ) : (
+                          <span className={line.quantityreceived >= line.quantityordered && line.quantityreceived > 0 ? 'pf-diff-pos' : ''}>
+                            {line.quantityreceived}
+                          </span>
+                        )}
                       </td>
                       <td className="pf-col-right">
                         {canEditLines ? (
@@ -784,7 +813,7 @@ export default function PurchaseOrderDetailPage() {
                       </td>
                       <td>
                         <div className="pf-row-actions">
-                          {canReceive && (
+                          {canReceive && line.status !== 'Received' && line.status !== 'Over-received' && (
                             <button className="pf-btn-edit" onClick={() => openReceipt(line)}>
                               Receive
                             </button>
@@ -941,7 +970,7 @@ export default function PurchaseOrderDetailPage() {
       {/* Goods Receipt Modal */}
       {receiptLine && (
         <div className="pf-modal-overlay" onClick={closeReceipt}>
-          <div className="pf-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="pf-modal pf-modal-wide" onClick={(e) => e.stopPropagation()}>
             <div className="pf-modal-header">
               <h2 className="pf-modal-title">Receive Stock</h2>
               <button className="pf-modal-close" onClick={closeReceipt}>✕</button>
@@ -962,38 +991,90 @@ export default function PurchaseOrderDetailPage() {
                 </div>
                 <div className="pf-modal-info-row">
                   <span>Outstanding</span>
-                  <span>{receiptLine.quantityordered - receiptLine.quantityreceived}</span>
+                  <span>{Math.max(0, receiptLine.quantityordered - receiptLine.quantityreceived)}</span>
                 </div>
               </div>
 
-              <div className="pf-field">
-                <label className="pf-label">Quantity Receiving Now <span className="pf-required">*</span></label>
-                <input
-                  className="pf-input pf-input-num pf-input-lg"
-                  type="number" min="1"
-                  value={receiptQty}
-                  onChange={(e) => setReceiptQty(e.target.value)}
-                  autoFocus
-                />
-              </div>
+              {/* Receipt rows */}
+              <table className="pf-inner-table" style={{ marginTop: '1rem' }}>
+                <thead>
+                  <tr>
+                    <th>Quantity</th>
+                    <th>Location</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receiptRows.map((row) => {
+                    const qty = parseInt(row.qty) || 0
+                    const total = receiptLine.quantityreceived + receiptRows.reduce((s, r) => s + (parseInt(r.qty) || 0), 0)
+                    return (
+                      <tr key={row.id}>
+                        <td style={{ width: '120px' }}>
+                          <input
+                            className="pf-input pf-input-num pf-input-sm"
+                            type="number" min="1"
+                            value={row.qty}
+                            onChange={(e) => updateReceiptRow(row.id, 'qty', e.target.value)}
+                            autoFocus={row.id === receiptRows[0]?.id}
+                          />
+                        </td>
+                        <td>
+                          <select
+                            className="pf-input pf-input-sm"
+                            value={row.locationId}
+                            onChange={(e) => updateReceiptRow(row.id, 'locationId', e.target.value)}
+                          >
+                            <option value="">— Select location —</option>
+                            {goodsInLocations.map((loc) => (
+                              <option key={loc.locationid} value={loc.locationid}>
+                                {loc.locationcode}{loc.locationname ? ` — ${loc.locationname}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td style={{ width: '40px' }}>
+                          {receiptRows.length > 1 && (
+                            <button
+                              className="pf-btn-deactivate"
+                              style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem' }}
+                              onClick={() => removeReceiptRow(row.id)}
+                            >✕</button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
 
-              <div className="pf-field">
-                <label className="pf-label">Goods In Location <span className="pf-required">*</span></label>
-                <select
-                  className="pf-input"
-                  value={receiptLocationId}
-                  onChange={(e) => setReceiptLocationId(e.target.value)}
-                >
-                  <option value="">— Select location —</option>
-                  {goodsInLocations.map((loc) => (
-                    <option key={loc.locationid} value={loc.locationid}>
-                      {loc.locationcode}{loc.locationname ? ` — ${loc.locationname}` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <button
+                className="pf-btn-secondary"
+                style={{ marginTop: '0.75rem', fontSize: '0.8rem' }}
+                onClick={addReceiptRow}
+              >
+                + Add Location
+              </button>
 
-              {receiptError && <div className="pf-alert-error">{receiptError}</div>}
+              {/* Running total and over-received warning */}
+              {(() => {
+                const thisReceipt = receiptRows.reduce((s, r) => s + (parseInt(r.qty) || 0), 0)
+                const newTotal = receiptLine.quantityreceived + thisReceipt
+                const over = newTotal - receiptLine.quantityordered
+                return (
+                  <div style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    Receiving now: <strong>{thisReceipt}</strong> &nbsp;·&nbsp;
+                    New total: <strong>{newTotal}</strong> of {receiptLine.quantityordered}
+                    {over > 0 && (
+                      <span style={{ color: 'var(--warning, #b45309)', marginLeft: '0.5rem' }}>
+                        ⚠ {over} unit{over !== 1 ? 's' : ''} over ordered
+                      </span>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {receiptError && <div className="pf-alert-error" style={{ marginTop: '0.75rem' }}>{receiptError}</div>}
             </div>
             <div className="pf-modal-footer">
               <button className="pf-btn-secondary" onClick={closeReceipt}>Cancel</button>
