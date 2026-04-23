@@ -541,6 +541,101 @@ export default function PurchaseOrderDetailPage() {
             </button>
           )}
 
+          {/* Goods Receipt — printable sheet for checking order in */}
+          {lines.length > 0 && !isCancelled && (
+            <button
+              className="pf-btn-secondary"
+              onClick={() => {
+                const rows = [...lines]
+                  .sort((a, b) => a.sku.localeCompare(b.sku))
+                  .map((line) => `
+                    <tr>
+                      <td>${line.sku}</td>
+                      <td>${line.productname}</td>
+                      <td style="text-align:center"><strong>${line.quantityordered}</strong></td>
+                      <td style="text-align:center">&nbsp;</td>
+                      <td>&nbsp;</td>
+                      <td style="text-align:center">☐</td>
+                      <td>&nbsp;</td>
+                    </tr>
+                  `).join('')
+
+                const html = `
+                  <!DOCTYPE html>
+                  <html>
+                  <head>
+                    <title>Goods Receipt — ${po.ponumber}</title>
+                    <style>
+                      body { font-family: Arial, sans-serif; font-size: 10pt; margin: 20pt; color: #000; }
+                      h1 { font-size: 16pt; margin: 0 0 4pt 0; }
+                      .doc-header { display: flex; justify-content: space-between; border-bottom: 2pt solid #000; padding-bottom: 8pt; margin-bottom: 12pt; }
+                      .meta { font-size: 9pt; line-height: 1.6; }
+                      table { width: 100%; border-collapse: collapse; }
+                      th { background: #f0f0f0; border: 1pt solid #999; padding: 4pt 6pt; text-align: left; font-size: 8pt; text-transform: uppercase; }
+                      td { border: 1pt solid #ccc; padding: 7pt 6pt; font-size: 9pt; vertical-align: top; }
+                      tr:nth-child(even) td { background: #fafafa; }
+                      .footer { margin-top: 16pt; padding-top: 10pt; border-top: 1pt solid #ccc; font-size: 9pt; color: #555; }
+                      .sign-row { margin-top: 20pt; display: flex; gap: 40pt; font-size: 9pt; }
+                      .sign-row div { flex: 1; border-top: 1pt solid #000; padding-top: 4pt; }
+                    </style>
+                  </head>
+                  <body>
+                    <div class="doc-header">
+                      <div>
+                        <h1>Goods Receipt</h1>
+                        <div class="meta">
+                          <strong>PO:</strong> ${po.ponumber || '—'}<br>
+                          <strong>Supplier:</strong> ${po.suppliername}<br>
+                          <strong>Order Date:</strong> ${po.orderdate ? new Date(po.orderdate).toLocaleDateString('en-GB') : '—'}
+                          ${po.expecteddate ? `<br><strong>Expected:</strong> ${new Date(po.expecteddate).toLocaleDateString('en-GB')}` : ''}
+                        </div>
+                      </div>
+                      <div class="meta" style="text-align:right">
+                        <strong>Printed:</strong> ${new Date().toLocaleDateString('en-GB')}<br>
+                        <strong>Lines:</strong> ${lines.length}<br>
+                        <strong>Total Units Ordered:</strong> ${lines.reduce((s, l) => s + (l.quantityordered || 0), 0)}
+                      </div>
+                    </div>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th style="width:14%">SKU</th>
+                          <th>Product</th>
+                          <th style="width:8%;text-align:center">Ordered</th>
+                          <th style="width:10%;text-align:center">Received</th>
+                          <th style="width:12%">Location</th>
+                          <th style="width:6%;text-align:center">✓</th>
+                          <th style="width:20%">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>${rows}</tbody>
+                    </table>
+                    ${po.notes ? `<div style="margin-top:12pt;font-size:9pt"><strong>PO Notes:</strong> ${po.notes}</div>` : ''}
+                    <div class="sign-row">
+                      <div>Checked by (print name)</div>
+                      <div>Signature</div>
+                      <div>Date</div>
+                    </div>
+                    <div class="footer">
+                      Tick each line as it is checked off the delivery. Record the received quantity and the location the stock was put away to. Note any shortages, damage, or substitutions in the Notes column.
+                    </div>
+                  </body>
+                  </html>
+                `
+
+                const win = window.open('', '_blank', 'width=900,height=700')
+                if (win) {
+                  win.document.write(html)
+                  win.document.close()
+                  win.focus()
+                  setTimeout(() => { try { win.print() } catch(e) {} }, 500)
+                }
+              }}
+            >
+              Print Goods Receipt
+            </button>
+          )}
+
           {/* Putaway list */}
           {receivedLines.length > 0 && (
             <button className="pf-btn-secondary" onClick={() => setShowPutaway(true)}>
