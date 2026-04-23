@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { logActivity, logChanges } from '@/lib/activity'
+import OrderUploadPanel from '@/components/OrderUploadPanel'
 
 type Order = {
   orderid: number
@@ -167,6 +168,7 @@ export default function OrderDetailPage() {
   const [productSearch, setProductSearch] = useState('')
   const [productResults, setProductResults] = useState<Product[]>([])
   const [showProductSearch, setShowProductSearch] = useState(false)
+  const [showUpload, setShowUpload] = useState(false)
   const [addingLine, setAddingLine] = useState(false)
   const [shippingInvalid, setShippingInvalid] = useState(false)
 
@@ -1470,16 +1472,51 @@ export default function OrderDetailPage() {
                 Order Lines
               </h2>
               {!isCancelled && !isCompleted && (
-                <button
-                  className="pf-btn-edit"
-                  onClick={() => setShowProductSearch(!showProductSearch)}
-                >
-                  + Add Product
-                </button>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    className="pf-btn-edit"
+                    onClick={() => {
+                      setShowUpload(!showUpload)
+                      if (!showUpload) setShowProductSearch(false)
+                    }}
+                  >
+                    + Upload List
+                  </button>
+                  <button
+                    className="pf-btn-edit"
+                    onClick={() => {
+                      setShowProductSearch(!showProductSearch)
+                      if (!showProductSearch) setShowUpload(false)
+                    }}
+                  >
+                    + Add Product
+                  </button>
+                </div>
               )}
             </div>
 
             <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
+
+            {/* Upload SKU list */}
+            {showUpload && order && (
+              <OrderUploadPanel
+                orderId={order.orderid}
+                orderNumber={order.ordernumber || `Order ${order.orderid}`}
+                getClientPrice={getClientPrice}
+                onAdded={async () => {
+                  // Re-fetch lines and recalculate totals
+                  const { data: linesData } = await supabase
+                    .from('tblorderlines')
+                    .select('*')
+                    .eq('orderid', order.orderid)
+                    .order('orderlineid')
+                  const freshLines = linesData || []
+                  setLines(freshLines)
+                  await recalculateTotals(freshLines, order.shippingcost || 0)
+                }}
+                onClose={() => setShowUpload(false)}
+              />
+            )}
 
             {/* Product search */}
             {showProductSearch && (

@@ -121,34 +121,37 @@ export default function StockAdjustmentPage() {
     const adj = adjustments[row.stocklevelid]
     const newQty = parseInt(adj?.newQty)
     if (isNaN(newQty) || newQty < 0) { setError('Enter a valid quantity (0 or more)'); return }
-    if (newQty === row.quantityonhand) { setError('Quantity unchanged — no adjustment needed'); return }
     if (!adj.reason) { setError('Select a reason'); return }
 
     setSaving(row.stocklevelid)
     setError(null)
 
     const diff = newQty - row.quantityonhand
+    const qtyChanged = diff !== 0
 
-    // Update stock level
-    await supabase
-      .from('tblstocklevels')
-      .update({ quantityonhand: newQty })
-      .eq('stocklevelid', row.stocklevelid)
+    if (qtyChanged) {
+      // Update stock level
+      await supabase
+        .from('tblstocklevels')
+        .update({ quantityonhand: newQty })
+        .eq('stocklevelid', row.stocklevelid)
 
-    // Log movement
-    const { error: movErr } = await supabase.from('tblstockmovements').insert({
-      movementdate: new Date().toISOString(),
-      movementtype: 'ADJUSTMENT',
-      productid: row.productid,
-      fromlocationid: diff < 0 ? row.locationid : null,
-      tolocationid: diff > 0 ? row.locationid : null,
-      quantity: Math.abs(diff),
-      reference: `Adjustment at ${row.locationcode}`,
-      reason: adj.reason,
-    })
-    if (movErr) console.error('Movement insert error:', movErr.message)
+      // Log movement — only when quantity actually changed
+      const { error: movErr } = await supabase.from('tblstockmovements').insert({
+        movementdate: new Date().toISOString(),
+        movementtype: 'ADJUSTMENT',
+        productid: row.productid,
+        fromlocationid: diff < 0 ? row.locationid : null,
+        tolocationid: diff > 0 ? row.locationid : null,
+        quantity: Math.abs(diff),
+        reference: `Adjustment at ${row.locationcode}`,
+        reason: adj.reason,
+      })
+      if (movErr) console.error('Movement insert error:', movErr.message)
+    }
 
-    // Stamp lastchecked for Picking Bin locations — adjustment implies a count was done
+    // Stamp lastchecked for Picking Bin locations — a count was confirmed,
+    // whether or not the quantity changed
     if (row.locationtype === 'Picking Bin') {
       await supabase
         .from('tblstocklevels')
