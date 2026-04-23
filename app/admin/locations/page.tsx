@@ -35,17 +35,16 @@ export default function LocationsPage() {
   const [newErrors, setNewErrors] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [showInactive, setShowInactive] = useState(false)
+  const [search, setSearch] = useState('')
+  const [filterType, setFilterType] = useState('')
 
   const fetchLocations = async () => {
     setLoading(true)
-    let query = supabase
+    const { data, error } = await supabase
       .from('tbllocations')
       .select('*')
       .order('locationcode')
 
-    if (!showInactive) query = query.eq('isactive', true)
-
-    const { data, error } = await query
     if (error) setError(error.message)
     else setLocations(data || [])
     setLoading(false)
@@ -53,7 +52,7 @@ export default function LocationsPage() {
 
   useEffect(() => {
     fetchLocations()
-  }, [showInactive])
+  }, [])
 
   // ── Edit existing ──────────────────────────────────────────────
   const startEdit = (loc: Location) => {
@@ -177,6 +176,20 @@ export default function LocationsPage() {
     else await fetchLocations()
   }
 
+  const filteredLocations = locations.filter((loc) => {
+    if (!showInactive && !loc.isactive) return false
+    if (filterType && loc.locationtype !== filterType) return false
+    if (search) {
+      const s = search.toLowerCase()
+      if (
+        !loc.locationcode.toLowerCase().includes(s) &&
+        !(loc.locationname || '').toLowerCase().includes(s) &&
+        !(loc.zone || '').toLowerCase().includes(s)
+      ) return false
+    }
+    return true
+  })
+
   return (
     <div className="pf-page">
       <div className="pf-page-header">
@@ -186,10 +199,27 @@ export default function LocationsPage() {
           </button>
           <h1 className="pf-page-title">Locations</h1>
           <p className="pf-page-subtitle">
-            {loading ? '—' : `${locations.length} location${locations.length !== 1 ? 's' : ''}`}
+            {loading ? '—' : `${filteredLocations.length} of ${locations.filter(l => showInactive || l.isactive).length} location${locations.length !== 1 ? 's' : ''}`}
           </p>
         </div>
         <div className="pf-header-actions">
+          <input
+            className="pf-search"
+            type="search"
+            placeholder="Search code, name, zone…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            className="pf-select"
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+          >
+            <option value="">All types</option>
+            {LOCATION_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
           <label className="pf-toggle-label">
             <input
               type="checkbox"
@@ -285,8 +315,8 @@ export default function LocationsPage() {
       <div className="pf-table-wrap">
         {loading ? (
           <div className="pf-loading">Loading locations…</div>
-        ) : locations.length === 0 ? (
-          <div className="pf-empty">No locations found.</div>
+        ) : filteredLocations.length === 0 ? (
+          <div className="pf-empty">{locations.length === 0 ? 'No locations found.' : 'No locations match your search.'}</div>
         ) : (
           <table className="pf-table">
             <thead>
@@ -301,7 +331,7 @@ export default function LocationsPage() {
               </tr>
             </thead>
             <tbody>
-              {locations.map((loc) =>
+              {filteredLocations.map((loc) =>
                 editingId === loc.locationid ? (
                   <tr key={loc.locationid} className="pf-row-editing">
                     <td>

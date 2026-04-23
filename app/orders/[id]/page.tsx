@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { logActivity, logChanges } from '@/lib/activity'
-import OrderUploadPanel from '@/components/OrderUploadPanel'
+import { usePermissions } from '@/lib/usePermissions'
 
 type Order = {
   orderid: number
@@ -154,9 +154,13 @@ export default function OrderDetailPage() {
   const router = useRouter()
   const id = params.id as string
 
+  const { can } = usePermissions()
+  const canViewCost = can('orders.viewcost')
+
   const [order, setOrder] = useState<Order | null>(null)
   const [originalOrder, setOriginalOrder] = useState<Order | null>(null)
   const [lines, setLines] = useState<OrderLine[]>([])
+  const [costPriceMap, setCostPriceMap] = useState<Map<number, number | null>>(new Map())
   const [shippingRates, setShippingRates] = useState<ShippingRate[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -168,7 +172,6 @@ export default function OrderDetailPage() {
   const [productSearch, setProductSearch] = useState('')
   const [productResults, setProductResults] = useState<Product[]>([])
   const [showProductSearch, setShowProductSearch] = useState(false)
-  const [showUpload, setShowUpload] = useState(false)
   const [addingLine, setAddingLine] = useState(false)
   const [shippingInvalid, setShippingInvalid] = useState(false)
 
@@ -211,6 +214,25 @@ export default function OrderDetailPage() {
       .order('orderlineid')
 
     setLines(linesData || [])
+
+    // Fetch cost prices for margin display — separate query (FK join workaround)
+    const productIds = (linesData || [])
+      .map((l: OrderLine) => l.productid)
+      .filter((id): id is number => id !== null)
+
+    if (productIds.length > 0) {
+      const { data: costData } = await supabase
+        .from('tblproducts')
+        .select('productid, costprice')
+        .in('productid', productIds)
+
+      const map = new Map<number, number | null>()
+      for (const p of costData || []) {
+        map.set(p.productid, p.costprice)
+      }
+      setCostPriceMap(map)
+    }
+
     setLoading(false)
   }, [id])
 
@@ -1472,51 +1494,16 @@ export default function OrderDetailPage() {
                 Order Lines
               </h2>
               {!isCancelled && !isCompleted && (
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button
-                    className="pf-btn-edit"
-                    onClick={() => {
-                      setShowUpload(!showUpload)
-                      if (!showUpload) setShowProductSearch(false)
-                    }}
-                  >
-                    + Upload List
-                  </button>
-                  <button
-                    className="pf-btn-edit"
-                    onClick={() => {
-                      setShowProductSearch(!showProductSearch)
-                      if (!showProductSearch) setShowUpload(false)
-                    }}
-                  >
-                    + Add Product
-                  </button>
-                </div>
+                <button
+                  className="pf-btn-edit"
+                  onClick={() => setShowProductSearch(!showProductSearch)}
+                >
+                  + Add Product
+                </button>
               )}
             </div>
 
             <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
-
-            {/* Upload SKU list */}
-            {showUpload && order && (
-              <OrderUploadPanel
-                orderId={order.orderid}
-                orderNumber={order.ordernumber || `Order ${order.orderid}`}
-                getClientPrice={getClientPrice}
-                onAdded={async () => {
-                  // Re-fetch lines and recalculate totals
-                  const { data: linesData } = await supabase
-                    .from('tblorderlines')
-                    .select('*')
-                    .eq('orderid', order.orderid)
-                    .order('orderlineid')
-                  const freshLines = linesData || []
-                  setLines(freshLines)
-                  await recalculateTotals(freshLines, order.shippingcost || 0)
-                }}
-                onClose={() => setShowUpload(false)}
-              />
-            )}
 
             {/* Product search */}
             {showProductSearch && (
@@ -1562,6 +1549,8 @@ export default function OrderDetailPage() {
                     )}
                     <th className="pf-col-right">Unit Price</th>
                     <th className="pf-col-right">Line Total</th>
+                    {canViewCost && <th className="pf-col-right">Cost</th>}
+                    {canViewCost && <th className="pf-col-right">Margin</th>}
                     <th className="pf-col-right">VAT</th>
                     <th></th>
                   </tr>
@@ -1634,6 +1623,31 @@ export default function OrderDetailPage() {
                         )}
                         <td className="pf-col-right pf-price">{formatPrice(line.unitprice)}</td>
                         <td className="pf-col-right pf-price">{formatPrice(line.linetotal)}</td>
+                        {canViewCost && (() => {
+                          const cost = line.productid ? costPriceMap.get(line.productid) : null
+                          const margin = (cost != null && cost > 0 && line.unitprice > 0)
+                            ? ((line.unitprice - cost) / line.unitprice) * 100
+                            : null
+                          return (
+                            <>
+                              <td className="pf-col-right pf-price" style={{ color: 'var(--pf-muted, #6b7280)' }}>
+                                {cost != null ? formatPrice(cost) : <span style={{ color: 'var(--warning, #b45309)' }}>—</span>}
+                              </td>
+                              <td className="pf-col-right" style={{
+                                fontWeight: 600,
+                                color: margin == null
+                                  ? 'var(--warning, #b45309)'
+                                  : margin < 20
+                                    ? 'var(--danger, #dc2626)'
+                                    : margin < 40
+                                      ? 'var(--warning, #b45309)'
+                                      : 'var(--success, #16a34a)',
+                              }}>
+                                {margin != null ? `${margin.toFixed(1)}%` : '—'}
+                              </td>
+                            </>
+                          )
+                        })()}
                         <td className="pf-col-right pf-category">
                           <span className={`pf-badge ${line.vatstatus === 'Standard' ? 'pf-badge-vat' : 'pf-badge-zero'}`}>
                             {line.vatstatus === 'Standard' ? '20%' : 'Zero'}
@@ -1692,6 +1706,65 @@ export default function OrderDetailPage() {
                 )}
               </div>
             )}
+
+            {/* Margin summary — visible to permitted users only */}
+            {canViewCost && lines.length > 0 && (() => {
+              const linesWithCost = lines.filter(l => l.productid && costPriceMap.get(l.productid) != null)
+              const linesNoCost = lines.filter(l => !l.productid || costPriceMap.get(l.productid) == null)
+              const totalCost = linesWithCost.reduce((sum, l) => {
+                const cost = costPriceMap.get(l.productid!)!
+                return sum + cost * l.quantityordered
+              }, 0)
+              const totalRevenue = linesWithCost.reduce((sum, l) => sum + l.linetotal, 0)
+              const overallMargin = totalRevenue > 0
+                ? ((totalRevenue - totalCost) / totalRevenue) * 100
+                : null
+
+              return (
+                <div style={{
+                  marginTop: '1rem',
+                  padding: '0.75rem 1rem',
+                  background: 'var(--pf-surface-alt, #f9fafb)',
+                  border: '1px solid var(--pf-border, #e5e7eb)',
+                  borderRadius: 6,
+                  fontSize: '0.85rem',
+                }}>
+                  <div style={{ fontWeight: 600, marginBottom: '0.4rem', color: 'var(--pf-text, #111)' }}>
+                    Margin Summary
+                  </div>
+                  <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                    <div>
+                      <span style={{ color: 'var(--pf-muted, #6b7280)' }}>Total Cost: </span>
+                      <span style={{ fontWeight: 600 }}>{formatPrice(totalCost)}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--pf-muted, #6b7280)' }}>Gross Profit: </span>
+                      <span style={{ fontWeight: 600 }}>{formatPrice(totalRevenue - totalCost)}</span>
+                    </div>
+                    {overallMargin != null && (
+                      <div>
+                        <span style={{ color: 'var(--pf-muted, #6b7280)' }}>Margin: </span>
+                        <span style={{
+                          fontWeight: 600,
+                          color: overallMargin < 20
+                            ? 'var(--danger, #dc2626)'
+                            : overallMargin < 40
+                              ? 'var(--warning, #b45309)'
+                              : 'var(--success, #16a34a)',
+                        }}>
+                          {overallMargin.toFixed(1)}%
+                        </span>
+                      </div>
+                    )}
+                    {linesNoCost.length > 0 && (
+                      <div style={{ color: 'var(--warning, #b45309)' }}>
+                        ⚠ {linesNoCost.length} line{linesNoCost.length > 1 ? 's' : ''} excluded — no cost price set
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
 
