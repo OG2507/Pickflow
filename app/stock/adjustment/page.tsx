@@ -81,18 +81,25 @@ export default function StockAdjustmentPage() {
 
       const { data } = await supabase
         .from('tblstocklevels')
-        .select(`stocklevelid, productid, quantityonhand, locationid,
-          tbllocations (locationcode, locationtype)`)
+        .select('stocklevelid, productid, quantityonhand, locationid')
         .eq('productid', prod.productid)
         .order('locationid')
+
+      // Fetch locations separately — tblstocklevels → tbllocations FK not in schema cache
+      const locationIds = (data || []).map((s: any) => s.locationid)
+      const { data: locs } = await supabase
+        .from('tbllocations')
+        .select('locationid, locationcode, locationtype')
+        .in('locationid', locationIds)
+      const locMap = new Map((locs || []).map((l: any) => [l.locationid, l]))
 
       stock = (data || []).map((s: any) => ({
         stocklevelid: s.stocklevelid,
         productid: prod.productid,
         quantityonhand: s.quantityonhand,
         locationid: s.locationid,
-        locationcode: s.tbllocations?.locationcode || '',
-        locationtype: s.tbllocations?.locationtype || null,
+        locationcode: locMap.get(s.locationid)?.locationcode || '',
+        locationtype: locMap.get(s.locationid)?.locationtype || null,
         tblproducts: { sku: prod.sku, productname: prod.productname },
       }))
     }
@@ -150,9 +157,9 @@ export default function StockAdjustmentPage() {
       if (movErr) console.error('Movement insert error:', movErr.message)
     }
 
-    // Stamp lastchecked for Picking Bin locations — a count was confirmed,
+    // Stamp lastchecked for Picking Bin and Overflow locations — a count was confirmed,
     // whether or not the quantity changed
-    if (row.locationtype === 'Picking Bin') {
+    if (row.locationtype === 'Picking Bin' || row.locationtype === 'Overflow') {
       await supabase
         .from('tblstocklevels')
         .update({ lastchecked: new Date().toISOString(), lastcheckedby: 'Stock adjustment' })

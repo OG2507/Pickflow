@@ -54,7 +54,7 @@ type Location = {
   locationname: string | null
 }
 
-const STATUS_FLOW = ['Draft', 'Sent', 'Partial', 'Received']
+const STATUS_FLOW = ['Draft', 'Sent', 'Partial']
 
 const formatUSD = (v: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v)
@@ -97,6 +97,10 @@ export default function PurchaseOrderDetailPage() {
 
   // Putaway list modal
   const [showPutaway, setShowPutaway] = useState(false)
+
+  // Close PO modal
+  const [showClosePO, setShowClosePO] = useState(false)
+  const [closingPO, setClosingPO] = useState(false)
 
   const fetchPO = useCallback(async () => {
     const { data, error } = await supabase
@@ -305,8 +309,19 @@ export default function PurchaseOrderDetailPage() {
     const idx = STATUS_FLOW.indexOf(po.status)
     if (idx <= 0) return
     const prev = STATUS_FLOW[idx - 1]
-    await supabase.from('tblpurchaseorders').update({ status: prev }).eq('poid', id)
-    setPO((p) => p ? { ...p, status: prev } : p)
+    const updates: any = { status: prev }
+    if (po.status === 'Received') updates.receiveddate = null
+    await supabase.from('tblpurchaseorders').update(updates).eq('poid', id)
+    setPO((p) => p ? { ...p, ...updates } : p)
+  }
+
+  const closePO = async () => {
+    setClosingPO(true)
+    const updates = { status: 'Received', receiveddate: new Date().toISOString() }
+    await supabase.from('tblpurchaseorders').update(updates).eq('poid', id)
+    setPO((prev) => prev ? { ...prev, ...updates } : prev)
+    setShowClosePO(false)
+    setClosingPO(false)
   }
 
   const cancelPO = async () => {
@@ -316,11 +331,10 @@ export default function PurchaseOrderDetailPage() {
 
   // ── Goods receipt ──────────────────────────────────────────────
   const openReceipt = (line: POLine) => {
-    const outstanding = line.quantityordered - line.quantityreceived
     setReceiptLine(line)
     setReceiptRows([{
       id: 1,
-      qty: outstanding > 0 ? String(outstanding) : '',
+      qty: '',
       locationId: line.delivertolocationid ? String(line.delivertolocationid) : '',
     }])
     setReceiptError(null)
@@ -333,7 +347,11 @@ export default function PurchaseOrderDetailPage() {
   }
 
   const addReceiptRow = () => {
-    setReceiptRows((prev) => [...prev, { id: Date.now(), qty: '', locationId: '' }])
+    setReceiptRows((prev) => {
+      // Clear all existing qtys so the user fills in each location's actual count
+      const cleared = prev.map((r) => ({ ...r, qty: '' }))
+      return [...cleared, { id: Date.now(), qty: '', locationId: '' }]
+    })
   }
 
   const updateReceiptRow = (id: number, field: 'qty' | 'locationId', value: string) => {
@@ -531,6 +549,12 @@ export default function PurchaseOrderDetailPage() {
   // Received lines for putaway list
   const receivedLines = lines.filter((l) => l.quantityreceived > 0)
 
+  // Close PO: only when all lines are Received or Over-received, and PO not already closed
+  const allLinesReceived = lines.length > 0 && lines.every(
+    (l) => l.status === 'Received' || l.status === 'Over-received'
+  )
+  const canClosePO = !isReceived && !isCancelled && allLinesReceived
+
   return (
     <div className="pf-page">
       <div className="pf-page-header">
@@ -548,7 +572,7 @@ export default function PurchaseOrderDetailPage() {
           <span className="pf-order-status-badge">{po.status}</span>
 
           {/* Step back */}
-          {currentIdx > 0 && !isCancelled && !isReceived && (
+          {currentIdx > 0 && !isCancelled && (
             <button className="pf-btn-secondary" onClick={stepBack}>
               ← {STATUS_FLOW[currentIdx - 1]}
             </button>
@@ -558,6 +582,13 @@ export default function PurchaseOrderDetailPage() {
           {nextStatus && !isCancelled && (
             <button className="pf-btn-primary" onClick={advanceStatus}>
               → {nextStatus}
+            </button>
+          )}
+
+          {/* Close PO */}
+          {canClosePO && (
+            <button className="pf-btn-primary" onClick={() => setShowClosePO(true)}>
+              ✓ Close PO
             </button>
           )}
 
@@ -999,8 +1030,8 @@ export default function PurchaseOrderDetailPage() {
               <table className="pf-inner-table" style={{ marginTop: '1rem' }}>
                 <thead>
                   <tr>
-                    <th>Quantity</th>
-                    <th>Location</th>
+                    <th>Qty Received Now</th>
+                    <th>Put Away Location</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -1188,6 +1219,34 @@ export default function PurchaseOrderDetailPage() {
                 }}
               >
                 Print
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Close PO Modal */}
+      {showClosePO && (
+        <div className="pf-modal-overlay" onClick={() => !closingPO && setShowClosePO(false)}>
+          <div className="pf-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+            <div className="pf-modal-header">
+              <h2 className="pf-modal-title">Close Purchase Order</h2>
+              <button className="pf-modal-close" onClick={() => setShowClosePO(false)} disabled={closingPO}>✕</button>
+            </div>
+            <div className="pf-modal-body">
+              <p style={{ marginBottom: '12px' }}>
+                All lines on <strong>{po.ponumber}</strong> are received. Closing the PO will mark it as <strong>Received</strong> and lock it from further changes.
+              </p>
+              <p style={{ color: 'var(--colour-muted)', fontSize: '0.875rem' }}>
+                This action cannot be undone from the PO — use the Step Back button if you need to reopen it later.
+              </p>
+            </div>
+            <div className="pf-modal-footer">
+              <button className="pf-btn-secondary" onClick={() => setShowClosePO(false)} disabled={closingPO}>
+                Cancel
+              </button>
+              <button className="pf-btn-primary" onClick={closePO} disabled={closingPO}>
+                {closingPO ? 'Closing…' : '✓ Confirm Close PO'}
               </button>
             </div>
           </div>
