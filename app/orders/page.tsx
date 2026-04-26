@@ -49,7 +49,7 @@ async function loadBulkPrintData(orderids: number[]) {
   const { data: settingsData } = await supabase
     .from('tblappsettings')
     .select('settingkey, settingvalue')
-    .in('settingkey', ['CompanyName', 'CompanyAddress', 'CompanyPhone', 'CompanyEmail'])
+    .in('settingkey', ['CompanyName', 'CompanyAddress', 'CompanyPhone', 'CompanyEmail', 'CompanyLogo'])
   const settings: Record<string, string> = {}
   for (const s of settingsData || []) settings[s.settingkey] = s.settingvalue || ''
 
@@ -263,10 +263,14 @@ function renderOrderDocuments(
   const companyAddress = (settings['CompanyAddress'] || '').replace(/\n/g, '<br>')
   const companyPhone   = settings['CompanyPhone'] || ''
   const companyEmail   = settings['CompanyEmail'] || ''
+  const companyLogo    = settings['CompanyLogo'] || ''
   const companyBlock = order.isblindship ? '' : `
-    <div style="font-size:9pt;margin-bottom:8pt">
-      <strong>${companyName}</strong><br>
-      ${companyAddress}${companyPhone ? `<br>${companyPhone}` : ''}${companyEmail ? `<br>${companyEmail}` : ''}
+    <div style="margin-bottom:8pt">
+      ${companyLogo ? `<img src="${companyLogo}" alt="" style="height:72pt;width:auto;display:block;margin-bottom:6pt">` : ''}
+      <div style="font-size:9pt">
+        <strong>${companyName}</strong><br>
+        ${companyAddress}${companyPhone ? `<br>${companyPhone}` : ''}${companyEmail ? `<br>${companyEmail}` : ''}
+      </div>
     </div>
   `
   const packingRows = [...lines]
@@ -314,7 +318,7 @@ function renderOrderDocuments(
         <tbody>${packingRows}</tbody>
       </table>
       ${order.notes ? `<div style="margin-top:12pt;font-size:9pt"><strong>Notes:</strong> ${order.notes}</div>` : ''}
-      <div class="thankyou">Thank you for your order. If you have any questions please don't hesitate to get in touch.</div>
+      <div class="thankyou">Thank you for your order. If you have any questions please don't hesitate to get in touch.${!order.isblindship ? '<div style="margin-top:6pt; font-size:11pt; font-weight:bold;">JKS-BARGAINS.CO.UK</div>' : ''}</div>
     </div>
   `
 }
@@ -532,6 +536,7 @@ export default function OrdersPage() {
     if (printWindow) {
       printWindow.document.write(`
         <!DOCTYPE html><html><head><title>Bulk Print — ${selectedOrders.length} orders</title>
+        <base href="${window.location.origin}">
         <style>
           body { font-family: Arial, sans-serif; font-size: 10pt; color: #000; }
           h1 { font-size: 16pt; margin: 0 0 4pt 0; }

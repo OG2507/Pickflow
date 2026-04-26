@@ -880,7 +880,7 @@ export default function OrderDetailPage() {
     const { data: settingsData } = await supabase
       .from('tblappsettings')
       .select('settingkey, settingvalue')
-      .in('settingkey', ['CompanyName', 'CompanyAddress', 'CompanyPhone', 'CompanyEmail'])
+      .in('settingkey', ['CompanyName', 'CompanyAddress', 'CompanyPhone', 'CompanyEmail', 'CompanyLogo'])
 
     const settings: Record<string, string> = {}
     for (const s of settingsData || []) {
@@ -891,6 +891,7 @@ export default function OrderDetailPage() {
     const companyAddress = (settings['CompanyAddress'] || '').replace(/\n/g, '<br>')
     const companyPhone   = settings['CompanyPhone'] || ''
     const companyEmail   = settings['CompanyEmail'] || ''
+    const companyLogo    = settings['CompanyLogo'] || ''
 
     const deliveryName = [order.shiptoname].filter(Boolean).join('')
 
@@ -914,14 +915,18 @@ export default function OrderDetailPage() {
     `).join('')
 
     const companyBlock = order.isblindship ? '' : `
-      <div style="font-size:9pt; margin-bottom:8pt">
-        <strong>${companyName}</strong><br>
-        ${companyAddress}${companyPhone ? `<br>${companyPhone}` : ''}${companyEmail ? `<br>${companyEmail}` : ''}
+      <div style="margin-bottom:8pt">
+        ${companyLogo ? `<img src="${companyLogo}" alt="" style="height:72pt;width:auto;display:block;margin-bottom:6pt">` : ''}
+        <div style="font-size:9pt">
+          <strong>${companyName}</strong><br>
+          ${companyAddress}${companyPhone ? `<br>${companyPhone}` : ''}${companyEmail ? `<br>${companyEmail}` : ''}
+        </div>
       </div>
     `
 
     const combinedHTML = `
       <!DOCTYPE html><html><head><title>Order ${order.ordernumber}</title>
+      <base href="${window.location.origin}">
       <style>
         body { font-family: Arial, sans-serif; font-size: 10pt; margin: 20pt; color: #000; }
         h1 { font-size: 16pt; margin: 0 0 4pt 0; }

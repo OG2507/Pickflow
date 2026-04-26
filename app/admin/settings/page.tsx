@@ -20,6 +20,7 @@ const LABELS: Record<string, string> = {
   CompanyAddress:        'Company Address',
   CompanyPhone:          'Company Phone',
   CompanyEmail:          'Company Email',
+  CompanyLogo:           'Company Logo',
   VATRate:               'VAT Rate (%)',
   DefaultShippingMethod: 'Default Shipping Method',
   OrderNumberPrefix:     'Order Number Prefix',
@@ -111,7 +112,7 @@ export default function AppSettingsPage() {
     setSuccess(true)
   }
 
-  if (loading) return <div className="pf-page"><div className="pf-loading">Loading settings…</div></div>
+  if (loading) return <div className="pf-page"><div className="pf-loading">Loading settings...</div></div>
 
   return (
     <div className="pf-page">
@@ -162,6 +163,30 @@ export default function AppSettingsPage() {
                 )}
               </div>
             ))}
+        </div>
+
+        <div className="pf-card">
+          <h2 className="pf-card-title">Packing Slip Logo</h2>
+          <p className="pf-card-note" style={{ marginBottom: 16 }}>
+            Upload your logo to Supabase Storage (Storage &rarr; company-assets), then paste the public URL here.
+          </p>
+          <div className="pf-field" style={{ marginBottom: 16 }}>
+            <label className="pf-label">Logo URL</label>
+            <input
+              className="pf-input"
+              type="text"
+              placeholder="https://your-project.supabase.co/storage/v1/object/public/company-assets/logo.png"
+              value={values['CompanyLogo'] || ''}
+              onChange={(e) => handleChange('CompanyLogo', e.target.value)}
+            />
+          </div>
+          {values['CompanyLogo'] && (
+            <img
+              src={values['CompanyLogo']}
+              alt="Logo preview"
+              style={{ maxHeight: 80, maxWidth: 300, display: 'block', border: '1px solid var(--border)', borderRadius: 4, padding: 4 }}
+            />
+          )}
         </div>
 
         <div className="pf-card">
