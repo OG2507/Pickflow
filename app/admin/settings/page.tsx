@@ -26,6 +26,7 @@ const LABELS: Record<string, string> = {
   OrderNumberPrefix:     'Order Number Prefix',
   PONumberPrefix:        'PO Number Prefix',
   ClientCodePrefix:      'Client Code Prefix',
+  OrderSources:          'Order Sources',
 }
 
 const MULTILINE_KEYS = ['CompanyAddress']
@@ -228,6 +229,35 @@ export default function AppSettingsPage() {
                 />
               </div>
             ))}
+        </div>
+
+        <div className="pf-card">
+          <h2 className="pf-card-title">Order Sources</h2>
+          <p className="pf-card-note" style={{ marginBottom: 16 }}>
+            These are the options shown in the Order Source dropdown when creating a new manual order.
+            Add or remove sources to match your business — one per line.
+          </p>
+          <div className="pf-field">
+            <label className="pf-label">Sources (one per line)</label>
+            <textarea
+              className="pf-input"
+              rows={6}
+              placeholder={"Email\nPhone\nLetter"}
+              value={(values['OrderSources'] || '').split(',').map(s => s.trim()).join('\n')}
+              onChange={(e) => {
+                // Convert line breaks back to comma-separated for storage
+                const csv = e.target.value
+                  .split('\n')
+                  .map(s => s.trim())
+                  .filter(s => s.length > 0)
+                  .join(', ')
+                handleChange('OrderSources', csv)
+              }}
+            />
+            <p className="pf-card-note" style={{ marginTop: 6 }}>
+              Currently stored as: <span style={{ fontFamily: 'monospace' }}>{values['OrderSources'] || '—'}</span>
+            </p>
+          </div>
         </div>
 
         <div className="pf-card pf-card-meta">

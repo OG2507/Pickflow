@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { label: 'Purchase Orders', href: '/purchase-orders' },
   { label: 'Quotes',          href: '/quotes' },
   { label: 'Reports',         href: '/reports' },
+  { label: 'Tools',           href: '/tools' },
   { label: 'Admin',           href: '/admin' },
 ]
 

@@ -21,8 +21,6 @@ type Client = {
   defaultblindship: boolean
 }
 
-const ORDER_SOURCES = ['Email', 'Phone', 'Letter']
-
 const generateOrderNumber = () => {
   // JKS-[days since 30 Dec 1899]-[sequence starting 100]
   const oleBase = new Date(1899, 11, 30)
@@ -55,6 +53,7 @@ export default function NewOrderPage() {
     notes: '',
   })
 
+  const [orderSources, setOrderSources] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -70,6 +69,29 @@ export default function NewOrderPage() {
       if (data) setClients(data)
     }
     fetchClients()
+  }, [])
+
+  // Fetch order sources from app settings
+  useEffect(() => {
+    const fetchSources = async () => {
+      const { data } = await supabase
+        .from('tblappsettings')
+        .select('settingvalue')
+        .eq('settingkey', 'OrderSources')
+        .single()
+
+      if (data?.settingvalue) {
+        const sources = data.settingvalue
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0)
+        setOrderSources(sources)
+      } else {
+        // Fallback if setting not yet in DB
+        setOrderSources(['Email', 'Phone', 'Letter'])
+      }
+    }
+    fetchSources()
   }, [])
 
   const filteredClients = clients.filter((c) => {
@@ -291,7 +313,7 @@ export default function NewOrderPage() {
               onChange={handleChange}
             >
               <option value="">— Select source —</option>
-              {ORDER_SOURCES.map((s) => (
+              {orderSources.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>

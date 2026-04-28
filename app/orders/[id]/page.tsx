@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { logActivity, logChanges } from '@/lib/activity'
 import { usePermissions } from '@/lib/usePermissions'
+import OrderUploadPanel from '@/components/OrderUploadPanel'
 
 type Order = {
   orderid: number
@@ -172,6 +173,7 @@ export default function OrderDetailPage() {
   const [productSearch, setProductSearch] = useState('')
   const [productResults, setProductResults] = useState<Product[]>([])
   const [showProductSearch, setShowProductSearch] = useState(false)
+  const [showUploadPanel, setShowUploadPanel] = useState(false)
   const [addingLine, setAddingLine] = useState(false)
   const [shippingInvalid, setShippingInvalid] = useState(false)
 
@@ -1506,6 +1508,15 @@ export default function OrderDetailPage() {
                   + Add Product
                 </button>
               )}
+              {!isCancelled && !isCompleted && (
+                <button
+                  className="pf-btn-secondary"
+                  style={{ marginLeft: '0.5rem' }}
+                  onClick={() => { setShowUploadPanel(true); setShowProductSearch(false) }}
+                >
+                  + Upload List
+                </button>
+              )}
             </div>
 
             <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
@@ -1536,6 +1547,17 @@ export default function OrderDetailPage() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Upload panel */}
+            {showUploadPanel && order && (
+              <OrderUploadPanel
+                orderId={order.orderid}
+                orderNumber={order.ordernumber || ''}
+                onAdded={fetchOrder}
+                getClientPrice={getClientPrice}
+                onClose={() => setShowUploadPanel(false)}
+              />
             )}
 
             {addingLine && <div className="pf-loading" style={{ padding: '0.5rem 0' }}>Adding…</div>}
