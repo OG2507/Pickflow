@@ -3,7 +3,6 @@
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import Header from '@/components/Header'
 import Link from 'next/link'
 
 export default function ToolsPage() {
@@ -17,7 +16,6 @@ export default function ToolsPage() {
 
   return (
     <>
-      <Header />
       <main className="pf-page">
         <div className="pf-page-header">
           <div>

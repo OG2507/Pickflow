@@ -3,7 +3,6 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import Header from '@/components/Header'
 
 type ConvertedLine = {
   sku: string
@@ -56,13 +55,23 @@ QUANTITY RULES:
 - If one quantity applies to the whole order (e.g. "10 of each", "please order 5 of each"), use that for all lines
 - If quantities vary per line, extract each one individually
 - If no quantity is stated, default to 1
-- Typos in board/number labels (e.g. "Not" instead of "No") should be treated as "No"
+
+INLINE QUANTITY FORMAT (very common):
+- Customers often write quantities as QTYxNUMBER or QTY X NUMBER e.g. "5X8" or "5 X 8"
+- The number BEFORE the X is the quantity, the number AFTER is the product number
+- Example: "BOARD 1 - 5X8, 5X9, 10X15" means B01-08 qty 5, B01-09 qty 5, B01-15 qty 10
+- Mixed quantities on the same board are fine - extract each separately
+- The board context carries forward until a new board heading appears
+
+TYPO TOLERANCE:
+- Board headings may contain typos (e.g. "BOARSD 4", "B0ARD 9") - correct them and note it
+- Product number labels may vary ("No", "Not", "no.", "#") - always treat as product number
 
 Return ONLY valid JSON in this exact format, no other text:
 {
   "lines": [
-    { "sku": "B01-24", "qty": 10 },
-    { "sku": "B02-43", "qty": 10 }
+    { "sku": "B01-08", "qty": 5 },
+    { "sku": "B01-09", "qty": 5 }
   ],
   "notes": ["Any ambiguities or assumptions made, one per item"]
 }`,
@@ -108,7 +117,6 @@ Return ONLY valid JSON in this exact format, no other text:
 
   return (
     <>
-      <Header />
       <main className="pf-page">
         <div className="pf-page-header">
           <div>

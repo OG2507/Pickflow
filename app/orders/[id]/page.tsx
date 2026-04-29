@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { logActivity, logChanges } from '@/lib/activity'
 import { usePermissions } from '@/lib/usePermissions'
-import OrderUploadPanel from '@/components/OrderUploadPanel'
 
 type Order = {
   orderid: number
@@ -173,7 +172,6 @@ export default function OrderDetailPage() {
   const [productSearch, setProductSearch] = useState('')
   const [productResults, setProductResults] = useState<Product[]>([])
   const [showProductSearch, setShowProductSearch] = useState(false)
-  const [showUploadPanel, setShowUploadPanel] = useState(false)
   const [addingLine, setAddingLine] = useState(false)
   const [shippingInvalid, setShippingInvalid] = useState(false)
 
@@ -773,10 +771,13 @@ export default function OrderDetailPage() {
           const bagsize = ovf.bagsize || 1
 
           if (bagsize === 1) {
-            instructions.push(`>> Also take ${remaining} from ${ovf.locationcode}`)
-            instructions.push(`+  Top up bin ${pl.binlocation} from ${ovf.locationcode} if possible`)
-            instructions.push(`*  Update bin ${pl.binlocation} count after topping up`)
-            remaining = 0
+            const takeFromOvf = Math.min(ovf.quantityonhand, remaining)
+            instructions.push(`>> Also take ${takeFromOvf} from ${ovf.locationcode}`)
+            remaining -= takeFromOvf
+            if (remaining <= 0) {
+              instructions.push(`+  Top up bin ${pl.binlocation} from ${ovf.locationcode} if possible`)
+              instructions.push(`*  Update bin ${pl.binlocation} count after topping up`)
+            }
           } else {
             const fullBags = Math.floor(remaining / bagsize)
             const partial = remaining % bagsize
@@ -811,11 +812,14 @@ export default function OrderDetailPage() {
             const bagsize = ovf.bagsize || 1
 
             if (bagsize === 1) {
+              const takeFromOvf = Math.min(ovf.quantityonhand, remaining)
               instructions.push(`!  Bin ${pl.binlocation} is empty`)
-              instructions.push(`>> Take ${remaining} from ${ovf.locationcode}`)
-              instructions.push(`+  Top up bin ${pl.binlocation} from ${ovf.locationcode} if possible`)
-              instructions.push(`*  Update both bin ${pl.binlocation} and ${ovf.locationcode} counts`)
-              remaining = 0
+              instructions.push(`>> Take ${takeFromOvf} from ${ovf.locationcode}`)
+              remaining -= takeFromOvf
+              if (remaining <= 0) {
+                instructions.push(`+  Top up bin ${pl.binlocation} from ${ovf.locationcode} if possible`)
+                instructions.push(`*  Update both bin ${pl.binlocation} and ${ovf.locationcode} counts`)
+              }
             } else {
               const fullBags = Math.floor(remaining / bagsize)
               const partial = remaining % bagsize
@@ -1508,15 +1512,6 @@ export default function OrderDetailPage() {
                   + Add Product
                 </button>
               )}
-              {!isCancelled && !isCompleted && (
-                <button
-                  className="pf-btn-secondary"
-                  style={{ marginLeft: '0.5rem' }}
-                  onClick={() => { setShowUploadPanel(true); setShowProductSearch(false) }}
-                >
-                  + Upload List
-                </button>
-              )}
             </div>
 
             <div style={{ borderBottom: '1px solid var(--border)', margin: '0.75rem 0' }} />
@@ -1547,17 +1542,6 @@ export default function OrderDetailPage() {
                   </div>
                 )}
               </div>
-            )}
-
-            {/* Upload panel */}
-            {showUploadPanel && order && (
-              <OrderUploadPanel
-                orderId={order.orderid}
-                orderNumber={order.ordernumber || ''}
-                onAdded={fetchOrder}
-                getClientPrice={getClientPrice}
-                onClose={() => setShowUploadPanel(false)}
-              />
             )}
 
             {addingLine && <div className="pf-loading" style={{ padding: '0.5rem 0' }}>Adding…</div>}
