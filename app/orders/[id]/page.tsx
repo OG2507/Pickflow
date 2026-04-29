@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { logActivity, logChanges } from '@/lib/activity'
 import { usePermissions } from '@/lib/usePermissions'
+import OrderUploadPanel from '@/components/OrderUploadPanel'
 
 type Order = {
   orderid: number
@@ -172,6 +173,7 @@ export default function OrderDetailPage() {
   const [productSearch, setProductSearch] = useState('')
   const [productResults, setProductResults] = useState<Product[]>([])
   const [showProductSearch, setShowProductSearch] = useState(false)
+  const [showUpload, setShowUpload] = useState(false)
   const [addingLine, setAddingLine] = useState(false)
   const [shippingInvalid, setShippingInvalid] = useState(false)
 
@@ -1505,12 +1507,20 @@ export default function OrderDetailPage() {
                 Order Lines
               </h2>
               {!isCancelled && !isCompleted && (
-                <button
-                  className="pf-btn-edit"
-                  onClick={() => setShowProductSearch(!showProductSearch)}
-                >
-                  + Add Product
-                </button>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    className="pf-btn-edit"
+                    onClick={() => setShowProductSearch(!showProductSearch)}
+                  >
+                    + Add Product
+                  </button>
+                  <button
+                    className="pf-btn-edit"
+                    onClick={() => setShowUpload(!showUpload)}
+                  >
+                    + Upload List
+                  </button>
+                </div>
               )}
             </div>
 
@@ -1542,6 +1552,16 @@ export default function OrderDetailPage() {
                   </div>
                 )}
               </div>
+            )}
+
+            {showUpload && order && (
+              <OrderUploadPanel
+                orderId={order.orderid}
+                orderNumber={order.ordernumber || ''}
+                onAdded={async () => { await fetchOrder(); }}
+                getClientPrice={getClientPrice}
+                onClose={() => setShowUpload(false)}
+              />
             )}
 
             {addingLine && <div className="pf-loading" style={{ padding: '0.5rem 0' }}>Adding…</div>}
