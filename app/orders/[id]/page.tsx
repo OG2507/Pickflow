@@ -858,7 +858,7 @@ export default function OrderDetailPage() {
 
           instructions.push(`>> ${binRef} — take ${qty} if available`)
           if (bagsize === 1) {
-            instructions.push(`>> Overflow — ${ovfLocation.locationcode}: take ${remaining} (${ovfLocation.quantityonhand} available)`)
+            instructions.push(`>> Overflow — ${ovfLocation.locationcode}: take ${qty} (${ovfLocation.quantityonhand} available)`)
             instructions.push(`+  Fill ${binRef} with as many as possible from ${ovfLocation.locationcode}`)
           } else {
             instructions.push(`>> Overflow — ${ovfLocation.locationcode}: take 1 bag (${bagsize} units)`)
