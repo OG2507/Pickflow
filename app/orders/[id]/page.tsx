@@ -768,8 +768,10 @@ export default function OrderDetailPage() {
           remaining -= fromBin
         }
 
+        let ovfUsedCount = 0
         for (const ovf of pl.overflowlocations) {
           if (remaining <= 0) break
+          ovfUsedCount++
           const bagsize = ovf.bagsize || 1
 
           if (bagsize === 1) {
@@ -802,6 +804,11 @@ export default function OrderDetailPage() {
           instructions.push(`!  Short by ${remaining} — check stock manually`)
         }
 
+        const unusedOvf2a = pl.overflowlocations.slice(ovfUsedCount)
+        if (unusedOvf2a.length > 0) {
+          instructions.push(`   Other overflow: ${unusedOvf2a.map(o => `${o.locationcode} (${o.quantityonhand})`).join(', ')}`)
+        }
+
       } else if (pl.pickingbintracked && pl.binqty === 0) {
         // Mode 2b — tracked, bin is empty
         if (pl.overflowlocations.length === 0) {
@@ -809,8 +816,10 @@ export default function OrderDetailPage() {
           instructions.push(`!  Check stock manually`)
         } else {
           let remaining = qty
+          let ovfUsedCount2b = 0
           for (const ovf of pl.overflowlocations) {
             if (remaining <= 0) break
+            ovfUsedCount2b++
             const bagsize = ovf.bagsize || 1
 
             if (bagsize === 1) {
@@ -842,6 +851,10 @@ export default function OrderDetailPage() {
           }
           if (remaining > 0) {
             instructions.push(`!  Short by ${remaining} — check stock manually`)
+          }
+          const unusedOvf2b = pl.overflowlocations.slice(ovfUsedCount2b)
+          if (unusedOvf2b.length > 0) {
+            instructions.push(`   Other overflow: ${unusedOvf2b.map(o => `${o.locationcode} (${o.quantityonhand})`).join(', ')}`)
           }
         }
 

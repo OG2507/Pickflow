@@ -207,26 +207,38 @@ function renderOrderDocuments(
       let remaining = qty
       const fromBin = Math.min(pl.binqty, remaining)
       if (fromBin > 0) { instructions.push(`Pick ${fromBin} from bin: ${pl.binlocation}`); remaining -= fromBin }
+      let ovfUsedCount = 0
       for (const ovf of pl.overflowlocations) {
         if (remaining <= 0) break
+        ovfUsedCount++
         const bagsize = ovf.bagsize || 1
         const fullBags = Math.floor(remaining / bagsize)
         const partial = remaining % bagsize
         if (fullBags > 0) { instructions.push(`Take ${fullBags} full bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize} units) from ${ovf.locationcode}`); remaining -= fullBags * bagsize }
         if (partial > 0 && remaining > 0) { instructions.push(`Open 1 bag from ${ovf.locationcode}: take ${partial} for order, put ${bagsize - partial} into ${pl.binlocation}`); remaining -= partial }
       }
+      const unusedOvf2a = pl.overflowlocations.slice(ovfUsedCount)
+      if (unusedOvf2a.length > 0) {
+        instructions.push(`   Other overflow: ${unusedOvf2a.map(o => `${o.locationcode} (${o.quantityonhand})`).join(', ')}`)
+      }
     } else if (pl.pickingbintracked && pl.binqty === 0) {
       if (pl.overflowlocations.length === 0) {
         instructions.push(`⚠ Bin (${pl.binlocation}) is empty and no overflow stock found — check manually`)
       } else {
         let remaining = qty
+        let ovfUsedCount2b = 0
         for (const ovf of pl.overflowlocations) {
           if (remaining <= 0) break
+          ovfUsedCount2b++
           const bagsize = ovf.bagsize || 1
           const fullBags = Math.floor(remaining / bagsize)
           const partial = remaining % bagsize
           if (fullBags > 0) { instructions.push(`Bin (${pl.binlocation}) is empty — take ${fullBags} full bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize} units) from ${ovf.locationcode}`); remaining -= fullBags * bagsize }
           if (partial > 0 && remaining > 0) { instructions.push(`Open 1 bag from ${ovf.locationcode}: take ${partial} for order, put ${bagsize - partial} into bin (${pl.binlocation})`); remaining -= partial }
+        }
+        const unusedOvf2b = pl.overflowlocations.slice(ovfUsedCount2b)
+        if (unusedOvf2b.length > 0) {
+          instructions.push(`   Other overflow: ${unusedOvf2b.map(o => `${o.locationcode} (${o.quantityonhand})`).join(', ')}`)
         }
       }
     } else {
