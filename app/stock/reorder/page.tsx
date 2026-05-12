@@ -368,8 +368,8 @@ export default function ReorderPage() {
                 </th>
                 <th>SKU</th>
                 <th>Product</th>
-                <th className="pf-col-right">Reorder Level</th>
-                <th className="pf-col-right">In Stock</th>
+                <th className="pf-col-right">Min</th>
+                <th className="pf-col-right">Stock</th>
                 <th className="pf-col-right">On Order</th>
                 <th className="pf-col-right">Effective</th>
                 <th className="pf-col-right">Order Qty</th>
@@ -394,30 +394,20 @@ export default function ReorderPage() {
                         style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
                       />
                     </td>
-                    <td className="pf-sku">{line.sku}</td>
+                    <td className="pf-sku">
+                      <a
+                        href={`/products/${line.productid}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open product page"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ color: 'var(--link)', textDecoration: 'underline' }}
+                      >
+                        {line.sku}
+                      </a>
+                    </td>
                     <td className="pf-productname">
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        {line.productname}
-                        <a
-                          href={`/products/${line.productid}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title="Open product page"
-                          onClick={(e) => e.stopPropagation()}
-                          style={{
-                            color: 'var(--text-faint)',
-                            lineHeight: 1,
-                            flexShrink: 0,
-                            opacity: 0.5,
-                            transition: 'opacity 0.15s',
-                            textDecoration: 'none',
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
-                          onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.5')}
-                        >
-                          ↗
-                        </a>
-                      </span>
+                      {line.productname}
                     </td>
                     <td className="pf-col-right pf-category">{line.reorderlevel}</td>
                     <td className="pf-col-right">
