@@ -395,7 +395,30 @@ export default function ReorderPage() {
                       />
                     </td>
                     <td className="pf-sku">{line.sku}</td>
-                    <td className="pf-productname">{line.productname}</td>
+                    <td className="pf-productname">
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        {line.productname}
+                        <a
+                          href={`/products/${line.productid}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open product page"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            color: 'var(--text-faint)',
+                            lineHeight: 1,
+                            flexShrink: 0,
+                            opacity: 0.5,
+                            transition: 'opacity 0.15s',
+                            textDecoration: 'none',
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+                          onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.5')}
+                        >
+                          ↗
+                        </a>
+                      </span>
+                    </td>
                     <td className="pf-col-right pf-category">{line.reorderlevel}</td>
                     <td className="pf-col-right">
                       <span className={line.currentstock === 0 ? 'pf-diff-neg' : ''}>
