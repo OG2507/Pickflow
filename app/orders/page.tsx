@@ -212,10 +212,13 @@ function renderOrderDocuments(
         if (remaining <= 0) break
         ovfUsedCount++
         const bagsize = ovf.bagsize || 1
-        const fullBags = Math.floor(remaining / bagsize)
+        const fullBagsAvailable = Math.floor(ovf.quantityonhand / bagsize)
+        const fullBagsNeeded = Math.floor(remaining / bagsize)
+        const fullBags = Math.min(fullBagsNeeded, fullBagsAvailable)
+        let ovfQtyRemaining = ovf.quantityonhand
+        if (fullBags > 0) { instructions.push(`Take ${fullBags} full bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize} units) from ${ovf.locationcode}`); remaining -= fullBags * bagsize; ovfQtyRemaining -= fullBags * bagsize }
         const partial = remaining % bagsize
-        if (fullBags > 0) { instructions.push(`Take ${fullBags} full bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize} units) from ${ovf.locationcode}`); remaining -= fullBags * bagsize }
-        if (partial > 0 && remaining > 0) { instructions.push(`Open 1 bag from ${ovf.locationcode}: take ${partial} for order, put ${bagsize - partial} into ${pl.binlocation}`); remaining -= partial }
+        if (partial > 0 && remaining > 0 && remaining < bagsize && ovfQtyRemaining >= bagsize) { instructions.push(`Open 1 bag from ${ovf.locationcode}: take ${partial} for order, put ${bagsize - partial} into ${pl.binlocation}`); remaining -= partial }
       }
       const unusedOvf2a = pl.overflowlocations.slice(ovfUsedCount)
       if (unusedOvf2a.length > 0) {
@@ -231,10 +234,13 @@ function renderOrderDocuments(
           if (remaining <= 0) break
           ovfUsedCount2b++
           const bagsize = ovf.bagsize || 1
-          const fullBags = Math.floor(remaining / bagsize)
+          const fullBagsAvailable = Math.floor(ovf.quantityonhand / bagsize)
+          const fullBagsNeeded = Math.floor(remaining / bagsize)
+          const fullBags = Math.min(fullBagsNeeded, fullBagsAvailable)
+          let ovfQtyRemaining = ovf.quantityonhand
+          if (fullBags > 0) { instructions.push(`Bin (${pl.binlocation}) is empty — take ${fullBags} full bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize} units) from ${ovf.locationcode}`); remaining -= fullBags * bagsize; ovfQtyRemaining -= fullBags * bagsize }
           const partial = remaining % bagsize
-          if (fullBags > 0) { instructions.push(`Bin (${pl.binlocation}) is empty — take ${fullBags} full bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize} units) from ${ovf.locationcode}`); remaining -= fullBags * bagsize }
-          if (partial > 0 && remaining > 0) { instructions.push(`Open 1 bag from ${ovf.locationcode}: take ${partial} for order, put ${bagsize - partial} into bin (${pl.binlocation})`); remaining -= partial }
+          if (partial > 0 && remaining > 0 && remaining < bagsize && ovfQtyRemaining >= bagsize) { instructions.push(`Open 1 bag from ${ovf.locationcode}: take ${partial} for order, put ${bagsize - partial} into bin (${pl.binlocation})`); remaining -= partial }
         }
         const unusedOvf2b = pl.overflowlocations.slice(ovfUsedCount2b)
         if (unusedOvf2b.length > 0) {

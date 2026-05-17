@@ -783,20 +783,29 @@ export default function OrderDetailPage() {
               instructions.push(`*  Update bin ${pl.binlocation} count after topping up`)
             }
           } else {
-            const fullBags = Math.floor(remaining / bagsize)
-            const partial = remaining % bagsize
+            // How many full bags can this location supply?
+            const fullBagsAvailable = Math.floor(ovf.quantityonhand / bagsize)
+            const fullBagsNeeded = Math.floor(remaining / bagsize)
+            const fullBags = Math.min(fullBagsNeeded, fullBagsAvailable)
+            let ovfQtyRemaining = ovf.quantityonhand
 
             if (fullBags > 0) {
               instructions.push(`>> Take ${fullBags} bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize}) from ${ovf.locationcode}`)
               remaining -= fullBags * bagsize
+              ovfQtyRemaining -= fullBags * bagsize
             }
-            if (partial > 0 && remaining > 0) {
+            // Only open a partial bag from this location if:
+            // - we still need less than a full bag
+            // - this location still has at least one full bag to open
+            const partial = remaining % bagsize
+            if (partial > 0 && remaining > 0 && remaining < bagsize && ovfQtyRemaining >= bagsize) {
               const toBin = bagsize - partial
               instructions.push(`>> Open 1 bag from ${ovf.locationcode} — take ${partial} for order`)
               instructions.push(`+  Put remaining ${toBin} into bin ${pl.binlocation}`)
               instructions.push(`*  Update bin ${pl.binlocation} count`)
               remaining -= partial
             }
+            // If remaining is still >= bagsize, the loop will continue to the next overflow location
           }
         }
 
@@ -832,21 +841,30 @@ export default function OrderDetailPage() {
                 instructions.push(`*  Update both bin ${pl.binlocation} and ${ovf.locationcode} counts`)
               }
             } else {
-              const fullBags = Math.floor(remaining / bagsize)
-              const partial = remaining % bagsize
+              // How many full bags can this location supply?
+              const fullBagsAvailable = Math.floor(ovf.quantityonhand / bagsize)
+              const fullBagsNeeded = Math.floor(remaining / bagsize)
+              const fullBags = Math.min(fullBagsNeeded, fullBagsAvailable)
+              let ovfQtyRemaining = ovf.quantityonhand
 
               instructions.push(`!  Bin ${pl.binlocation} is empty`)
               if (fullBags > 0) {
                 instructions.push(`>> Take ${fullBags} bag${fullBags > 1 ? 's' : ''} (${fullBags * bagsize}) from ${ovf.locationcode}`)
                 remaining -= fullBags * bagsize
+                ovfQtyRemaining -= fullBags * bagsize
               }
-              if (partial > 0 && remaining > 0) {
+              // Only open a partial bag from this location if:
+              // - we still need less than a full bag
+              // - this location still has at least one full bag to open
+              const partial = remaining % bagsize
+              if (partial > 0 && remaining > 0 && remaining < bagsize && ovfQtyRemaining >= bagsize) {
                 const toBin = bagsize - partial
                 instructions.push(`>> Open 1 bag from ${ovf.locationcode} — take ${partial} for order`)
                 instructions.push(`+  Put remaining ${toBin} into bin ${pl.binlocation}`)
                 remaining -= partial
               }
               instructions.push(`*  Update bin ${pl.binlocation} count`)
+              // If remaining is still >= bagsize, the loop will continue to the next overflow location
             }
           }
           if (remaining > 0) {
@@ -1130,11 +1148,14 @@ export default function OrderDetailPage() {
       for (const ovf of overflowLevels) {
         if (remaining <= 0) break
         const bagsize = ovf.bagsize > 0 ? ovf.bagsize : productBagsize
-        const fullBags = Math.floor(remaining / bagsize)
-        const partial = remaining % bagsize
 
-        // Track running quantity so partial deduction uses the post-full-bags value
+        // Track running quantity available at this location after full-bag deductions
         let ovfQty = ovf.quantityonhand
+
+        // How many full bags can this location supply?
+        const fullBagsAvailable = Math.floor(ovfQty / bagsize)
+        const fullBagsNeeded = Math.floor(remaining / bagsize)
+        const fullBags = Math.min(fullBagsNeeded, fullBagsAvailable)
 
         if (fullBags > 0) {
           const deduct = fullBags * bagsize
@@ -1148,7 +1169,12 @@ export default function OrderDetailPage() {
           remaining -= deduct
         }
 
-        if (partial > 0 && remaining > 0) {
+        // Only attempt a partial bag from this location if:
+        //  - we still need more stock
+        //  - the need is now a partial (not a full bag — that means we need to carry on to the next location)
+        //  - this location actually has at least one bag left to open
+        const partial = remaining % bagsize
+        if (partial > 0 && remaining > 0 && remaining < bagsize && ovfQty >= bagsize) {
           const toBin = bagsize - partial
           ovfQty -= bagsize
           await supabase.from('tblstocklevels').update({ quantityonhand: ovfQty }).eq('stocklevelid', ovf.stocklevelid)
@@ -1169,6 +1195,8 @@ export default function OrderDetailPage() {
           }
           remaining -= partial
         }
+        // If remaining is still a multiple of bagsize (or this location ran out of bags),
+        // the loop continues to the next overflow location.
       }
 
       // Return how many were actually picked
