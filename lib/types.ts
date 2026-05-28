@@ -168,6 +168,8 @@ export type Order = {
   totalweightg: number
   notes: string | null
   createdby: string | null
+  isbackorder: boolean
+  parentorderid: number | null
 }
 
 export type OrderLine = {

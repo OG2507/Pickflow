@@ -21,6 +21,7 @@ type OrderRow = {
   firstname: string | null
   lastname: string | null
   isebay: boolean
+  isbackorder: boolean
   selected: boolean
 }
 
@@ -459,7 +460,7 @@ export default function OrdersPage() {
 
     let query = supabase
       .from('tblorders')
-      .select(`orderid, ordernumber, orderdate, ordersource, status, isebay,
+      .select(`orderid, ordernumber, orderdate, ordersource, status, isebay, isbackorder,
         shiptoname, shiptopostcode, subtotal, shippingcost, totalweightg,
         clientid, tblclients (companyname, firstname, lastname)`)
       .order('orderdate', { ascending: false })
@@ -469,7 +470,7 @@ export default function OrdersPage() {
     const { data } = await query
     setAllOrders((data || []).map((r: any) => ({
       orderid: r.orderid, ordernumber: r.ordernumber, orderdate: r.orderdate,
-      ordersource: r.ordersource, status: r.status, isebay: r.isebay || false,
+      ordersource: r.ordersource, status: r.status, isebay: r.isebay || false, isbackorder: r.isbackorder || false,
       shiptoname: r.shiptoname,
       shiptopostcode: r.shiptopostcode, subtotal: r.subtotal, shippingcost: r.shippingcost,
       totalweightg: r.totalweightg, clientid: r.clientid,
@@ -733,7 +734,16 @@ export default function OrdersPage() {
                           style={{ accentColor: 'var(--accent)', cursor: 'pointer' }} />
                       )}
                     </td>
-                    <td className="pf-sku">{o.ordernumber || '—'}</td>
+                    <td className="pf-sku">
+                      {o.ordernumber || '—'}
+                      {o.isbackorder && (
+                        <span style={{
+                          marginLeft: '6px', fontSize: '0.65rem', fontWeight: 700,
+                          background: 'var(--pf-warning, #f59e0b)', color: '#fff',
+                          padding: '1px 5px', borderRadius: '3px', verticalAlign: 'middle',
+                        }}>BO</span>
+                      )}
+                    </td>
                     <td className="pf-category">
                       {o.orderdate ? new Date(o.orderdate).toLocaleDateString('en-GB') : '—'}
                     </td>

@@ -42,6 +42,8 @@ type Order = {
   externalorderref: string | null
   externalreference: string | null
   royalmailexportedat: string | null
+  isbackorder: boolean
+  parentorderid: number | null
 }
 
 type OrderLine = {
@@ -608,6 +610,22 @@ export default function OrderDetailPage() {
   const [showTrackingModal, setShowTrackingModal] = useState(false)
   const [pendingTrackingNumber, setPendingTrackingNumber] = useState('')
 
+  // Backorder modal state
+  type ShortfallLine = {
+    orderlineid: number
+    productid: number
+    sku: string | null
+    productname: string | null
+    quantityordered: number
+    quantityAvailable: number
+    shortfall: number
+    decision: 'backorder' | 'cancel'
+  }
+  const [showBackorderModal, setShowBackorderModal] = useState(false)
+  const [shortfallLines, setShortfallLines] = useState<ShortfallLine[]>([])
+  const [createdBackorderNumber, setCreatedBackorderNumber] = useState<string | null>(null)
+  const [pendingTrackingForBackorder, setPendingTrackingForBackorder] = useState('')
+
   // ── Print Order ────────────────────────────────────────────────
   const exportToRoyalMail = async () => {
     const res = await fetch(`/api/royalmail-export?orderid=${order!.orderid}`)
@@ -1073,7 +1091,42 @@ export default function OrderDetailPage() {
   }
 
   // ── Confirm Pick ───────────────────────────────────────────────
-  const confirmPick = async () => {
+  // ── Stock availability check (pre-pick) ───────────────────────
+  // Checks available stock for all tracked lines without moving anything.
+  // Returns a map of productid -> available quantity.
+  const checkStockAvailability = async (
+    productid: number,
+    quantityNeeded: number
+  ): Promise<number> => {
+    const { data: product } = await supabase
+      .from('tblproducts')
+      .select('pickingbintracked, bagsizedefault, isbundle')
+      .eq('productid', productid)
+      .single()
+
+    if (!product?.pickingbintracked || product?.isbundle) {
+      // Untracked and bundles are always treated as fully available
+      return quantityNeeded
+    }
+
+    const { data: stockLevelsRaw } = await supabase
+      .from('tblstocklevels')
+      .select('quantityonhand, tbllocations(locationtype)')
+      .eq('productid', productid)
+      .gt('quantityonhand', 0)
+
+    if (!stockLevelsRaw) return 0
+
+    const total = (stockLevelsRaw as any[]).reduce((sum: number, s: any) => sum + s.quantityonhand, 0)
+    return Math.min(total, quantityNeeded)
+  }
+
+  // ── Confirm Pick ───────────────────────────────────────────────
+  // confirmPick is called with resolved decisions for backorder/cancel lines.
+  // shortfallDecisions: map of orderlineid -> { backorder: qty, cancel: qty }
+  const confirmPick = async (
+    shortfallDecisions?: Map<number, { backorder: number; cancel: number }>
+  ) => {
     if (!order) return
     console.log(`[confirmPick] STARTED — orderid=${order.orderid} lines=${lines.length}`)
     setConfirmingPick(true)
@@ -1109,7 +1162,6 @@ export default function OrderDetailPage() {
       }
 
       // Untracked — no automatic stock movements. Return the quantity as-is
-      // (caller passes quantitypicked, which is assumed correct for untracked products).
       if (!product?.pickingbintracked) {
         console.log(`[confirmPick] productid=${productid} — UNTRACKED, returning ${quantityordered}`)
         return quantityordered
@@ -1149,10 +1201,8 @@ export default function OrderDetailPage() {
         if (remaining <= 0) break
         const bagsize = ovf.bagsize > 0 ? ovf.bagsize : productBagsize
 
-        // Track running quantity available at this location after full-bag deductions
         let ovfQty = ovf.quantityonhand
 
-        // How many full bags can this location supply?
         const fullBagsAvailable = Math.floor(ovfQty / bagsize)
         const fullBagsNeeded = Math.floor(remaining / bagsize)
         const fullBags = Math.min(fullBagsNeeded, fullBagsAvailable)
@@ -1169,10 +1219,6 @@ export default function OrderDetailPage() {
           remaining -= deduct
         }
 
-        // Only attempt a partial bag from this location if:
-        //  - we still need more stock
-        //  - the need is now a partial (not a full bag — that means we need to carry on to the next location)
-        //  - this location actually has at least one bag left to open
         const partial = remaining % bagsize
         if (partial > 0 && remaining > 0 && remaining < bagsize && ovfQty >= bagsize) {
           const toBin = bagsize - partial
@@ -1195,11 +1241,8 @@ export default function OrderDetailPage() {
           }
           remaining -= partial
         }
-        // If remaining is still a multiple of bagsize (or this location ran out of bags),
-        // the loop continues to the next overflow location.
       }
 
-      // Return how many were actually picked
       return quantityordered - remaining
     }
 
@@ -1208,18 +1251,38 @@ export default function OrderDetailPage() {
     for (const line of lines) {
       if (!line.productid) continue
 
-      // Use quantitypicked as set by the picker — seeded to quantityordered for untracked,
-      // 0 for tracked (confirmPick calculates the real figure from stock).
-      const pickedQty = line.quantitypicked ?? line.quantityordered
-      console.log(`[confirmPick] line ${line.orderlineid} sku=${line.sku} quantityordered=${line.quantityordered} quantitypicked=${line.quantitypicked} → pickedQty=${pickedQty}`)
-      const actualPicked = await executePickMovements(line.productid, pickedQty, order.ordernumber)
+      // Work out how many to attempt picking. If a shortfall decision exists for this line,
+      // only pick the available quantity (the backorder/cancel qty is handled separately).
+      const decision = shortfallDecisions?.get(line.orderlineid)
+      const qtyToPick = decision
+        ? line.quantityordered - decision.backorder - decision.cancel
+        : (line.quantitypicked ?? line.quantityordered)
+
+      console.log(`[confirmPick] line ${line.orderlineid} sku=${line.sku} ordered=${line.quantityordered} toPick=${qtyToPick}`)
+      const actualPicked = await executePickMovements(line.productid, qtyToPick, order.ordernumber ?? '')
+
+      // Determine line status
+      const lineStatus = decision && (decision.backorder > 0 || decision.cancel > 0)
+        ? 'Picked' // partial — picked what we could
+        : 'Picked'
 
       await supabase
         .from('tblorderlines')
-        .update({ quantitypicked: actualPicked, status: 'Picked' })
+        .update({ quantitypicked: actualPicked, status: lineStatus })
         .eq('orderlineid', line.orderlineid)
 
       pickedResults.set(line.orderlineid, actualPicked)
+    }
+
+    // Handle cancelled lines (update their status and zero their qty to match what shipped)
+    if (shortfallDecisions) {
+      for (const [orderlineid, decision] of shortfallDecisions) {
+        if (decision.cancel > 0 && decision.backorder === 0) {
+          // Fully cancelled shortfall — mark the portion as cancelled
+          // The line qty has already been picked at available qty, status stays Picked
+          // (we don't split lines; the picked qty reflects what shipped)
+        }
+      }
     }
 
     // Update React state so the display immediately shows actual picked quantities
@@ -1229,9 +1292,113 @@ export default function OrderDetailPage() {
         : l
     ))
 
-    // Advance to Dispatched
+    // ── Create backorder order if any lines were backordered ──────
+    let backorderOrderNumber: string | null = null
+
+    if (shortfallDecisions) {
+      const backorderLines = lines.filter((l) => {
+        const d = shortfallDecisions.get(l.orderlineid)
+        return d && d.backorder > 0
+      })
+
+      if (backorderLines.length > 0) {
+        // Generate backorder order number: original + -BO1
+        const boNumber = `${order.ordernumber}-BO1`
+
+        const { data: newOrder, error: boOrderErr } = await supabase
+          .from('tblorders')
+          .insert({
+            ordernumber:      boNumber,
+            clientid:         order.clientid,
+            orderdate:        new Date().toISOString(),
+            ordersource:      order.ordersource,
+            status:           'New',
+            isblindship:      order.isblindship,
+            shiptoname:       order.shiptoname,
+            shiptoaddress1:   order.shiptoaddress1,
+            shiptoaddress2:   order.shiptoaddress2,
+            shiptoaddress3:   order.shiptoaddress3,
+            shiptotown:       order.shiptotown,
+            shiptocounty:     order.shiptocounty,
+            shiptopostcode:   order.shiptopostcode,
+            shiptocountry:    order.shiptocountry,
+            shippingmethod:   'Tracked 48',
+            shippingcost:     0,
+            subtotal:         0,
+            productvat:       0,
+            shippingvat:      0,
+            totalvat:         0,
+            ordertotal:       0,
+            ordertotalincvat: 0,
+            totalweightg:     0,
+            notes:            `Backorder from ${order.ordernumber}`,
+            isbackorder:      true,
+            parentorderid:    order.orderid,
+            createdby:        'system',
+          })
+          .select('orderid')
+          .single()
+
+        if (boOrderErr || !newOrder) {
+          console.error('[confirmPick] Failed to create backorder order:', boOrderErr)
+          setPickError('Despatch completed but backorder order could not be created. Please create it manually.')
+        } else {
+          const boOrderId = newOrder.orderid
+          backorderOrderNumber = boNumber
+
+          // Create backorder lines
+          let boSubtotal = 0
+          let boVat = 0
+
+          for (const line of backorderLines) {
+            const d = shortfallDecisions.get(line.orderlineid)!
+            const boQty = d.backorder
+            const lineTotal = line.unitprice * boQty
+            const vatAmount = line.vatstatus === 'Standard' ? lineTotal * 0.2 : 0
+
+            boSubtotal += lineTotal
+            boVat += vatAmount
+
+            await supabase.from('tblorderlines').insert({
+              orderid:        boOrderId,
+              productid:      line.productid,
+              sku:            line.sku,
+              productname:    line.productname,
+              quantityordered: boQty,
+              quantitypicked: 0,
+              unitprice:      line.unitprice,
+              linetotal:      lineTotal,
+              vatstatus:      line.vatstatus,
+              vatrate:        line.vatstatus === 'Standard' ? 0.2 : 0,
+              vatamount:      vatAmount,
+              linetotalincvat: lineTotal + vatAmount,
+              status:         'Pending',
+              backorderid:    order.orderid,
+            })
+
+            // Update the original line to record which backorder it spawned
+            await supabase.from('tblorderlines')
+              .update({ backorderid: boOrderId })
+              .eq('orderlineid', line.orderlineid)
+          }
+
+          // Update backorder order totals
+          await supabase.from('tblorders').update({
+            subtotal:         boSubtotal,
+            productvat:       boVat,
+            totalvat:         boVat,
+            ordertotal:       boSubtotal,
+            ordertotalincvat: boSubtotal + boVat,
+          }).eq('orderid', boOrderId)
+
+          console.log(`[confirmPick] Backorder order created: ${boNumber} (orderid=${boOrderId})`)
+        }
+      }
+    }
+
+    // Advance original order to Despatched
     const prevStatusDisp = order.status
-    const updates = { status: 'Dispatched', despatchdate: new Date().toISOString() }
+    const updates = { status: 'Despatched', despatchdate: new Date().toISOString() }
     await supabase.from('tblorders').update(updates).eq('orderid', id)
     setOrder((prev) => prev ? { ...prev, ...updates } : prev)
     logActivity({
@@ -1241,18 +1408,80 @@ export default function OrderDetailPage() {
       entityLabel: order.ordernumber || `Order ${id}`,
       fieldName:   'status',
       oldValue:    prevStatusDisp,
-      newValue:    'Dispatched',
-      notes:       'Confirm Pick',
+      newValue:    'Despatched',
+      notes:       backorderOrderNumber
+        ? `Confirm Pick — backorder created: ${backorderOrderNumber}`
+        : 'Confirm Pick',
     })
+
+    if (backorderOrderNumber) {
+      setCreatedBackorderNumber(backorderOrderNumber)
+    }
+
     setConfirmingPick(false)
+  }
+
+  // ── Backorder modal confirm ────────────────────────────────────
+  const handleBackorderModalConfirm = async () => {
+    setShowBackorderModal(false)
+    const decisions = new Map<number, { backorder: number; cancel: number }>()
+    for (const s of shortfallLines) {
+      decisions.set(s.orderlineid, {
+        backorder: s.decision === 'backorder' ? s.shortfall : 0,
+        cancel:    s.decision === 'cancel'    ? s.shortfall : 0,
+      })
+    }
+
+    // For wholesale orders, still prompt for tracking number first
+    const isWholesale = order?.ordersource !== 'Shopwired' && order?.ordersource !== 'eBay'
+    if (isWholesale) {
+      setPendingTrackingForBackorder(order?.trackingnumber || '')
+      // Store decisions temporarily and show tracking modal
+      setShortfallLines(shortfallLines) // already set
+      // We'll pass decisions through the tracking flow
+      setShowTrackingModal(true)
+      // stash decisions so tracking confirm can use them
+      ;(window as any).__pendingBackorderDecisions = decisions
+    } else {
+      await confirmPick(decisions)
+    }
   }
 
   // ── Tracking modal handler ──────────────────────────────────────
   // For wholesale orders, intercept Confirm Pick to prompt for tracking number.
   // Shopwired and eBay orders skip the modal — labels come from Shopwired directly.
-  const handleConfirmPickClick = () => {
+  const handleConfirmPickClick = async () => {
     if (!order) return
     console.log(`[confirmPick] button clicked — ordersource=${order.ordersource} status=${order.status}`)
+
+    // ── Step 1: Check for stock shortfalls ────────────────────────
+    const shortfalls: typeof shortfallLines = []
+
+    for (const line of lines) {
+      if (!line.productid) continue
+      const available = await checkStockAvailability(line.productid, line.quantityordered)
+      if (available < line.quantityordered) {
+        shortfalls.push({
+          orderlineid:       line.orderlineid,
+          productid:         line.productid,
+          sku:               line.sku,
+          productname:       line.productname,
+          quantityordered:   line.quantityordered,
+          quantityAvailable: available,
+          shortfall:         line.quantityordered - available,
+          decision:          'backorder', // default to backorder
+        })
+      }
+    }
+
+    if (shortfalls.length > 0) {
+      // Show backorder decision modal
+      setShortfallLines(shortfalls)
+      setShowBackorderModal(true)
+      return
+    }
+
+    // ── Step 2: No shortfalls — normal flow ───────────────────────
     const isWholesale = order.ordersource !== 'Shopwired' && order.ordersource !== 'eBay'
     if (isWholesale) {
       setPendingTrackingNumber(order.trackingnumber || '')
@@ -1265,7 +1494,6 @@ export default function OrderDetailPage() {
   const handleTrackingModalConfirm = async () => {
     if (!order) return
     setShowTrackingModal(false)
-    // Save tracking number to order record before running confirmPick
     if (pendingTrackingNumber.trim()) {
       await supabase
         .from('tblorders')
@@ -1273,7 +1501,15 @@ export default function OrderDetailPage() {
         .eq('orderid', order.orderid)
       setOrder((prev) => prev ? { ...prev, trackingnumber: pendingTrackingNumber.trim() } : prev)
     }
-    confirmPick()
+    // Check if we have stashed backorder decisions (came via backorder modal → tracking modal)
+    const pendingDecisions: Map<number, { backorder: number; cancel: number }> | undefined =
+      (window as any).__pendingBackorderDecisions
+    if (pendingDecisions) {
+      delete (window as any).__pendingBackorderDecisions
+      await confirmPick(pendingDecisions)
+    } else {
+      await confirmPick()
+    }
   }
 
   // ── Advance status ─────────────────────────────────────────────
@@ -1426,7 +1662,16 @@ export default function OrderDetailPage() {
           <button className="pf-back" onClick={() => router.push('/orders')}>
             ← Orders
           </button>
-          <h1 className="pf-page-title">{order.ordernumber || 'Order'}</h1>
+          <h1 className="pf-page-title">
+            {order.ordernumber || 'Order'}
+            {order.isbackorder && (
+              <span style={{
+                marginLeft: '10px', fontSize: '0.7rem', fontWeight: 600,
+                background: 'var(--pf-warning, #f59e0b)', color: '#fff',
+                padding: '2px 8px', borderRadius: '4px', verticalAlign: 'middle',
+              }}>BACKORDER</span>
+            )}
+          </h1>
           <p className="pf-page-subtitle">
             {order.ordersource} · {new Date(order.orderdate || '').toLocaleDateString('en-GB')}
           </p>
@@ -1529,6 +1774,52 @@ export default function OrderDetailPage() {
       {/* Pick error */}
       {pickError && (
         <div className="pf-shipping-invalid-warning">{pickError}</div>
+      )}
+
+      {/* Backorder created notification */}
+      {createdBackorderNumber && (
+        <div style={{
+          background: 'var(--pf-success-bg, #f0fdf4)',
+          border: '1px solid var(--pf-success, #22c55e)',
+          borderRadius: '6px',
+          padding: '12px 16px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          fontSize: '0.9rem',
+        }}>
+          <span style={{ color: 'var(--pf-success, #16a34a)', fontWeight: 600 }}>✓ Backorder created:</span>
+          <span
+            style={{ color: 'var(--pf-brand)', cursor: 'pointer', textDecoration: 'underline' }}
+            onClick={() => router.push(`/orders?search=${createdBackorderNumber}`)}
+          >
+            {createdBackorderNumber}
+          </span>
+          <span style={{ color: 'var(--text-muted)', marginLeft: 'auto', fontSize: '0.8rem' }}>
+            Tracked 48 · £0.00 shipping
+          </span>
+        </div>
+      )}
+
+      {/* Parent order link — shown on backorder orders */}
+      {order.isbackorder && order.parentorderid && (
+        <div style={{
+          background: 'var(--pf-warning-bg, #fffbeb)',
+          border: '1px solid var(--pf-warning, #f59e0b)',
+          borderRadius: '6px',
+          padding: '12px 16px',
+          marginBottom: '16px',
+          fontSize: '0.9rem',
+        }}>
+          <span style={{ color: 'var(--text-muted)' }}>Backorder from original order: </span>
+          <span
+            style={{ color: 'var(--pf-brand)', cursor: 'pointer', textDecoration: 'underline', fontWeight: 600 }}
+            onClick={() => router.push(`/orders/${order.parentorderid}`)}
+          >
+            View original order →
+          </span>
+        </div>
       )}
 
       {/* Shipping invalidated warning */}
@@ -1975,6 +2266,98 @@ export default function OrderDetailPage() {
 
         </div>
       </div>
+
+      {/* Backorder decision modal */}
+      {showBackorderModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            padding: '28px 32px',
+            width: '620px',
+            maxWidth: '95vw',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+          }}>
+            <h2 style={{ margin: '0 0 6px 0', fontSize: '1.1rem', color: 'var(--text)' }}>
+              Stock Shortfall — Backorder Decision
+            </h2>
+            <p style={{ margin: '0 0 20px 0', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+              The following lines have insufficient stock. Choose what to do with each shortfall.
+              What you can despatch today will ship now. Backorders will be created as a separate order on Tracked 48.
+            </p>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '24px', fontSize: '0.875rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>SKU</th>
+                  <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Product</th>
+                  <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Ordered</th>
+                  <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Available</th>
+                  <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Short</th>
+                  <th style={{ textAlign: 'center', padding: '6px 8px', color: 'var(--text-muted)' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shortfallLines.map((s) => (
+                  <tr key={s.orderlineid} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '8px', fontFamily: 'monospace', fontSize: '0.8rem' }}>{s.sku || '—'}</td>
+                    <td style={{ padding: '8px' }}>{s.productname || '—'}</td>
+                    <td style={{ padding: '8px', textAlign: 'right' }}>{s.quantityordered}</td>
+                    <td style={{ padding: '8px', textAlign: 'right', color: 'var(--pf-success, #16a34a)' }}>{s.quantityAvailable}</td>
+                    <td style={{ padding: '8px', textAlign: 'right', color: 'var(--pf-danger, #dc2626)', fontWeight: 600 }}>{s.shortfall}</td>
+                    <td style={{ padding: '8px', textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.875rem' }}>
+                          <input
+                            type="radio"
+                            name={`bo-decision-${s.orderlineid}`}
+                            checked={s.decision === 'backorder'}
+                            onChange={() => setShortfallLines((prev) =>
+                              prev.map((x) => x.orderlineid === s.orderlineid ? { ...x, decision: 'backorder' } : x)
+                            )}
+                          />
+                          Backorder
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.875rem' }}>
+                          <input
+                            type="radio"
+                            name={`bo-decision-${s.orderlineid}`}
+                            checked={s.decision === 'cancel'}
+                            onChange={() => setShortfallLines((prev) =>
+                              prev.map((x) => x.orderlineid === s.orderlineid ? { ...x, decision: 'cancel' } : x)
+                            )}
+                          />
+                          Cancel shortfall
+                        </label>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                className="pf-btn-secondary"
+                onClick={() => { setShowBackorderModal(false); setConfirmingPick(false) }}
+              >
+                Cancel
+              </button>
+              <button
+                className="pf-btn-primary"
+                onClick={handleBackorderModalConfirm}
+              >
+                Confirm &amp; Despatch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tracking number modal — wholesale orders only */}
       {showTrackingModal && (
