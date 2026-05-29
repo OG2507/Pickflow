@@ -25,7 +25,6 @@ export async function POST(request: Request) {
         shiptoname, shiptoaddress1, shiptoaddress2, shiptoaddress3,
         shiptotown, shiptocounty, shiptopostcode, shiptocountry,
         shippingmethod, totalweightg, subtotal, shippingcost, ordertotal,
-        ordertotalincvat,
         tblclients (companyname, firstname, lastname, email, phone)
       `)
       .eq('orderid', orderid)
@@ -40,8 +39,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'eBay orders are managed directly through Click and Drop' })
     }
 
+    // ── Package format mapping ──────────────────────────────────
+    const mapPackageFormat = (size: string): string => {
+      const map: Record<string, string> = {
+        'letter':        'letter',
+        'large letter':  'largeLetter',
+        'small parcel':  'smallParcel',
+        'medium parcel': 'mediumParcel',
+        'parcel':        'parcel',
+      }
+      return map[size.toLowerCase()] || 'parcel'
+    }
+    let packageFormat = 'parcel' // default
+
     // ── Service code lookup ──────────────────────────────────────
-    // Check mapping table first (Shopwired method names), then shipping rates (manual orders)
     let serviceCode = 'TOLP48' // default — Tracked 48
     if (order.shippingmethod) {
       const { data: mapped } = await supabase
@@ -52,17 +63,29 @@ export async function POST(request: Request) {
 
       if (mapped?.servicecode) {
         serviceCode = mapped.servicecode
+        // Also fetch packagesize from tblshippingrates for this method name
+        const { data: rateForFormat } = await supabase
+          .from('tblshippingrates')
+          .select('packagesize')
+          .eq('methodname', order.shippingmethod)
+          .maybeSingle()
+        if (rateForFormat?.packagesize) {
+          packageFormat = mapPackageFormat(rateForFormat.packagesize)
+        }
       } else {
         const { data: rate } = await supabase
           .from('tblshippingrates')
-          .select('servicecode')
+          .select('servicecode, packagesize')
           .eq('methodname', order.shippingmethod)
           .maybeSingle()
 
         if (rate?.servicecode) {
           serviceCode = rate.servicecode
-        } else if (rate && !rate.servicecode) {
-          // Method exists but has no service code — collection or free delivery
+        }
+        if (rate?.packagesize) {
+          packageFormat = mapPackageFormat(rate.packagesize)
+        }
+        if (rate && !rate.servicecode) {
           return NextResponse.json({
             success: false,
             error: 'No Royal Mail service code for this shipping method — label not required',
@@ -73,54 +96,63 @@ export async function POST(request: Request) {
 
     // ── Build recipient name ─────────────────────────────────────
     const client = order.tblclients as any
-    const recipientName = (order.shiptoname || '').trim() ||
+    const fullName = (order.shiptoname || '').trim() ||
       [client?.companyname, client?.firstname, client?.lastname]
         .filter(Boolean).join(' ').trim() ||
       'Unknown'
 
-    // ── Build payload ────────────────────────────────────────────
-    // Required fields per API spec: recipient, orderDate, subtotal, shippingCostCharged, total
-    const cadPayload = {
+    // ── countryCode — must be ISO 2-letter ──────────────────────
+    const countryCode = (order.shiptocountry && order.shiptocountry.length === 2)
+      ? order.shiptocountry.toUpperCase()
+      : 'GB'
+
+    // ── Build payload per API spec ───────────────────────────────
+    // recipient.address is a nested object; phoneNumber/emailAddress are on recipient directly
+    // serviceCode belongs inside postageDetails, not at order level
+    const cadPayload: any = {
       orderReference:      order.ordernumber || String(order.orderid),
-      orderDate:           order.orderdate || new Date().toISOString(),
+      orderDate:           (order.orderdate || new Date().toISOString()).replace('+00:00', 'Z'),
       subtotal:            order.subtotal || 0,
       shippingCostCharged: order.shippingcost || 0,
       total:               order.ordertotal || 0,
       recipient: {
-        name:         recipientName,
-        addressLine1: order.shiptoaddress1 || '',
-        addressLine2: order.shiptoaddress2 || undefined,
-        addressLine3: order.shiptoaddress3 || undefined,
-        city:         order.shiptotown || '',
-        countryCode:  order.shiptocountry || 'GB',
-        postcode:     order.shiptopostcode || '',
+        address: {
+          fullName,
+          addressLine1: order.shiptoaddress1 || '',
+          addressLine2: order.shiptoaddress2 || undefined,
+          addressLine3: order.shiptoaddress3 || undefined,
+          city:         order.shiptotown || '',
+          county:       order.shiptocounty || undefined,
+          postcode:     order.shiptopostcode || '',
+          countryCode,
+        },
         phoneNumber:  client?.phone || undefined,
         emailAddress: client?.email || undefined,
       },
       packages: [
         {
           weightInGrams:           Math.max(order.totalweightg || 100, 1),
-          packageFormatIdentifier: 'Parcel',
+          packageFormatIdentifier: packageFormat,
         },
       ],
-      serviceCode,
+      postageDetails: {
+        serviceCode,
+      },
     }
 
-    // Strip undefined values — the API rejects null/undefined on optional fields
+    // Strip undefined values — API rejects undefined on optional fields
     const cleanPayload = JSON.parse(JSON.stringify(cadPayload))
 
     console.log('[C&D] Sending payload:', JSON.stringify(cleanPayload, null, 2))
 
-    // ── POST to Click & Drop ─────────────────────────────────────
-    // Body must be a JSON array even for a single order
     const cadRes = await fetch(`${CAD_BASE}/orders`, {
       method: 'POST',
       headers: {
-        'Authorization':  CAD_KEY,
-        'Content-Type':   'application/json',
-        'Accept':         'application/json',
+        'Authorization': CAD_KEY,
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
       },
-      body: JSON.stringify([cleanPayload]),
+      body: JSON.stringify({ items: [cleanPayload] }),
     })
 
     const responseText = await cadRes.text()
@@ -144,7 +176,6 @@ export async function POST(request: Request) {
       || cadData?.[0]?.orderIdentifier
       || null
 
-    // Write C&D order reference back to PickFlow
     if (cadOrderId) {
       await supabase
         .from('tblorders')
