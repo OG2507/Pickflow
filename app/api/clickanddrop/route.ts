@@ -8,7 +8,6 @@ const supabase = createClient(
 
 const CAD_BASE = 'https://api.parcel.royalmail.com/api/v1'
 const CAD_KEY  = process.env.CLICKANDDROP_API_KEY!
-const TRADING_NAME = "JK's Bargains Ltd"
 
 export async function POST(request: Request) {
   try {
@@ -18,7 +17,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'No orderid provided' })
     }
 
-    // Fetch order with all required data
+    // Fetch order
     const { data: order, error: orderErr } = await supabase
       .from('tblorders')
       .select(`
@@ -26,6 +25,7 @@ export async function POST(request: Request) {
         shiptoname, shiptoaddress1, shiptoaddress2, shiptoaddress3,
         shiptotown, shiptocounty, shiptopostcode, shiptocountry,
         shippingmethod, totalweightg, subtotal, shippingcost, ordertotal,
+        ordertotalincvat,
         tblclients (companyname, firstname, lastname, email, phone)
       `)
       .eq('orderid', orderid)
@@ -35,98 +35,127 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: 'Order not found' })
     }
 
-    // Skip eBay orders
+    // Skip eBay orders — managed through C&D directly via eBay integration
     if (order.isebay) {
       return NextResponse.json({ success: false, error: 'eBay orders are managed directly through Click and Drop' })
     }
 
-    // Get service code — check mapping table first, then fall back to shipping rates
-    let serviceCode = 'TOLP48' // default — 48 hour tracked
+    // ── Service code lookup ──────────────────────────────────────
+    // Check mapping table first (Shopwired method names), then shipping rates (manual orders)
+    let serviceCode = 'TOLP48' // default — Tracked 48
     if (order.shippingmethod) {
-      // Try mapping table first (catches Shopwired method names)
       const { data: mapped } = await supabase
         .from('tblshippingmethodmap')
         .select('servicecode')
         .eq('swmethodname', order.shippingmethod)
-        .single()
+        .maybeSingle()
 
       if (mapped?.servicecode) {
         serviceCode = mapped.servicecode
       } else {
-        // Fall back to shipping rates table (catches manual wholesale orders)
         const { data: rate } = await supabase
           .from('tblshippingrates')
           .select('servicecode')
           .eq('methodname', order.shippingmethod)
-          .single()
+          .maybeSingle()
+
         if (rate?.servicecode) {
           serviceCode = rate.servicecode
         } else if (rate && !rate.servicecode) {
-          // Method exists but has no service code — collection or free delivery, skip C&D
-          return NextResponse.json({ success: false, error: 'No Royal Mail service code for this shipping method — label not required' })
+          // Method exists but has no service code — collection or free delivery
+          return NextResponse.json({
+            success: false,
+            error: 'No Royal Mail service code for this shipping method — label not required',
+          })
         }
       }
     }
 
-    // Build recipient name
+    // ── Build recipient name ─────────────────────────────────────
     const client = order.tblclients as any
-    const recipientName = order.shiptoname ||
-      [client?.companyname || '', client?.firstname || '', client?.lastname || ''].filter(Boolean).join(' ').trim() ||
+    const recipientName = (order.shiptoname || '').trim() ||
+      [client?.companyname, client?.firstname, client?.lastname]
+        .filter(Boolean).join(' ').trim() ||
       'Unknown'
 
-    // Weight — minimum 1g
-    const weightGrams = Math.max(order.totalweightg || 1, 1)
-
-    // Build minimal Click & Drop order payload for testing
+    // ── Build payload ────────────────────────────────────────────
+    // Required fields per API spec: recipient, orderDate, subtotal, shippingCostCharged, total
     const cadPayload = {
-      orderReference: order.ordernumber || String(order.orderid),
+      orderReference:      order.ordernumber || String(order.orderid),
+      orderDate:           order.orderdate || new Date().toISOString(),
+      subtotal:            order.subtotal || 0,
+      shippingCostCharged: order.shippingcost || 0,
+      total:               order.ordertotal || 0,
       recipient: {
         name:         recipientName,
         addressLine1: order.shiptoaddress1 || '',
+        addressLine2: order.shiptoaddress2 || undefined,
+        addressLine3: order.shiptoaddress3 || undefined,
         city:         order.shiptotown || '',
+        countryCode:  order.shiptocountry || 'GB',
         postcode:     order.shiptopostcode || '',
-        countryCode:  'GB',
+        phoneNumber:  client?.phone || undefined,
+        emailAddress: client?.email || undefined,
       },
       packages: [
         {
           weightInGrams:           Math.max(order.totalweightg || 100, 1),
-          packageFormatIdentifier: 'LargeLetter',
-        }
+          packageFormatIdentifier: 'Parcel',
+        },
       ],
+      serviceCode,
     }
 
-    console.log('C&D payload:', JSON.stringify(cadPayload, null, 2))
+    // Strip undefined values — the API rejects null/undefined on optional fields
+    const cleanPayload = JSON.parse(JSON.stringify(cadPayload))
 
-    // Push to Click & Drop — bare array of orders
-    const cadRes = await fetch(`${CAD_BASE}/Orders`, {
+    console.log('[C&D] Sending payload:', JSON.stringify(cleanPayload, null, 2))
+
+    // ── POST to Click & Drop ─────────────────────────────────────
+    // Body must be a JSON array even for a single order
+    const cadRes = await fetch(`${CAD_BASE}/orders`, {
       method: 'POST',
       headers: {
-        'Authorization': CAD_KEY,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        'Authorization':  CAD_KEY,
+        'Content-Type':   'application/json',
+        'Accept':         'application/json',
       },
-      body: JSON.stringify([cadPayload]),
+      body: JSON.stringify([cleanPayload]),
     })
 
+    const responseText = await cadRes.text()
+    console.log(`[C&D] Response ${cadRes.status}:`, responseText)
+
     if (!cadRes.ok) {
-      const errText = await cadRes.text()
-      return NextResponse.json({ success: false, error: `Click and Drop error: ${cadRes.status} — ${errText}` })
+      return NextResponse.json({
+        success: false,
+        error:   `Click and Drop error: ${cadRes.status} — ${responseText}`,
+      })
     }
 
-    const cadData = await cadRes.json()
-    const cadOrderId = cadData?.[0]?.orderIdentifier || null
+    let cadData: any
+    try {
+      cadData = JSON.parse(responseText)
+    } catch {
+      return NextResponse.json({ success: false, error: 'Invalid JSON response from Click and Drop' })
+    }
 
-    // Store C&D order reference on the PickFlow order
+    const cadOrderId = cadData?.createdOrders?.[0]?.orderIdentifier
+      || cadData?.[0]?.orderIdentifier
+      || null
+
+    // Write C&D order reference back to PickFlow
     if (cadOrderId) {
       await supabase
         .from('tblorders')
-        .update({ cadorderid: cadOrderId })
+        .update({ cadorderid: String(cadOrderId) })
         .eq('orderid', orderid)
     }
 
     return NextResponse.json({ success: true, cadOrderId })
 
   } catch (err: any) {
+    console.error('[C&D] Unexpected error:', err)
     return NextResponse.json({ success: false, error: err.message }, { status: 500 })
   }
 }

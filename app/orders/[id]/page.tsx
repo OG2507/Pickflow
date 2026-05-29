@@ -625,6 +625,34 @@ export default function OrderDetailPage() {
   const [shortfallLines, setShortfallLines] = useState<ShortfallLine[]>([])
   const [createdBackorderNumber, setCreatedBackorderNumber] = useState<string | null>(null)
   const [pendingTrackingForBackorder, setPendingTrackingForBackorder] = useState('')
+  const [sendingToCAD, setSendingToCAD] = useState(false)
+  const [cadSuccess, setCADSuccess] = useState<string | null>(null)
+
+  // ── Click & Drop API ───────────────────────────────────────────
+  const sendToClickAndDrop = async () => {
+    if (!order) return
+    setSendingToCAD(true)
+    setCADSuccess(null)
+    setError(null)
+    try {
+      const res = await fetch('/api/clickanddrop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderid: order.orderid }),
+      })
+      const data = await res.json()
+      if (!data.success) {
+        setError(`Click & Drop: ${data.error}`)
+      } else {
+        setCADSuccess(data.cadOrderId ? `Sent — C&D ref: ${data.cadOrderId}` : 'Sent to Click & Drop')
+        await fetchOrder()
+      }
+    } catch (err: any) {
+      setError(`Click & Drop: ${err.message}`)
+    } finally {
+      setSendingToCAD(false)
+    }
+  }
 
   // ── Print Order ────────────────────────────────────────────────
   const exportToRoyalMail = async () => {
@@ -1719,6 +1747,19 @@ export default function OrderDetailPage() {
             </button>
           )}
 
+          {/* Send to Click & Drop — all non-eBay orders from Printed onwards */}
+          {['Printed', 'Post Printed', 'Picking', 'Dispatched'].includes(order.status) &&
+           !order.isebay && (
+            <button
+              className="pf-btn-secondary"
+              onClick={sendToClickAndDrop}
+              disabled={sendingToCAD}
+              title={order.cadorderid ? `Already sent — C&D ref: ${order.cadorderid}. Click to resend.` : 'Send to Click & Drop'}
+            >
+              {sendingToCAD ? 'Sending…' : order.cadorderid ? '✓ Resend to C&D' : '→ Send to C&D'}
+            </button>
+          )}
+
           {/* Royal Mail CSV — wholesale Printed orders not yet exported */}
           {order.status === 'Printed' &&
            order.ordersource !== 'Shopwired' && order.ordersource !== 'eBay' && (
@@ -1768,6 +1809,27 @@ export default function OrderDetailPage() {
       {order.status === 'New' && !isCancelled && (
         <div className="pf-print-note">
           🖨 Clicking <strong>Print Order</strong> will generate the picking list and packing slip, then advance the status to Printed.
+        </div>
+      )}
+
+      {/* Click & Drop success */}
+      {cadSuccess && (
+        <div style={{
+          background: 'var(--pf-success-bg, #f0fdf4)',
+          border: '1px solid var(--pf-success, #22c55e)',
+          borderRadius: '6px',
+          padding: '10px 16px',
+          marginBottom: '12px',
+          fontSize: '0.875rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <span style={{ color: 'var(--pf-success, #16a34a)', fontWeight: 600 }}>✓ {cadSuccess}</span>
+          <button
+            onClick={() => setCADSuccess(null)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1rem' }}
+          >✕</button>
         </div>
       )}
 
