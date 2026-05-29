@@ -39,6 +39,7 @@ type POLine = {
   delivertolocationcode: string | null
   status: string
   reorderqty: number
+  suppliersku: string | null
 }
 
 type Product = {
@@ -99,6 +100,10 @@ export default function PurchaseOrderDetailPage() {
   type BackorderAlert = { ordernumber: string; orderid: number }
   const [backorderAlerts, setBackorderAlerts] = useState<BackorderAlert[]>([])
 
+  // Inline supplier SKU editing — tracks which line is being edited and the draft value
+  const [editingSkuLineId, setEditingSkuLineId] = useState<number | null>(null)
+  const [editingSkuValue, setEditingSkuValue] = useState('')
+
   // Putaway list modal
   const [showPutaway, setShowPutaway] = useState(false)
 
@@ -133,6 +138,22 @@ export default function PurchaseOrderDetailPage() {
       .eq('poid', id)
       .order('polineid')
 
+    // Fetch supplier SKUs for these products from this supplier — separate query (FK join workaround)
+    const productIds = (linesData || []).map((r: any) => r.productid)
+    const supplierSkuMap = new Map<number, string | null>()
+
+    if (productIds.length > 0 && data.supplierid) {
+      const { data: skuLinks } = await supabase
+        .from('tblproductsuppliers')
+        .select('productid, suppliersku')
+        .eq('supplierid', data.supplierid)
+        .in('productid', productIds)
+
+      for (const row of (skuLinks || []) as any[]) {
+        supplierSkuMap.set(row.productid, row.suppliersku || null)
+      }
+    }
+
     setLines(
       (linesData || []).map((r: any) => ({
         polineid:             r.polineid,
@@ -150,6 +171,7 @@ export default function PurchaseOrderDetailPage() {
         delivertolocationid:  r.delivertolocationid,
         delivertolocationcode: r.tbllocations?.locationcode || null,
         status:               r.status,
+        suppliersku:          supplierSkuMap.get(r.productid) ?? null,
       }))
     )
 
@@ -493,6 +515,43 @@ export default function PurchaseOrderDetailPage() {
     setReceiptSaving(false)
     closeReceipt()
     await fetchPO()
+  }
+
+  // ── Inline supplier SKU save ───────────────────────────────────
+  const saveSupplierSku = async (line: POLine, newSku: string) => {
+    if (!po) return
+    const trimmed = newSku.trim()
+
+    // Check if a link already exists for this product + supplier
+    const { data: existing } = await supabase
+      .from('tblproductsuppliers')
+      .select('productsupplierid, suppliersku')
+      .eq('productid', line.productid)
+      .eq('supplierid', po.supplierid)
+      .maybeSingle()
+
+    if (existing) {
+      await supabase
+        .from('tblproductsuppliers')
+        .update({ suppliersku: trimmed || null })
+        .eq('productsupplierid', existing.productsupplierid)
+    } else if (trimmed) {
+      // No existing link — create one
+      await supabase
+        .from('tblproductsuppliers')
+        .insert({
+          productid:   line.productid,
+          supplierid:  po.supplierid,
+          suppliersku: trimmed,
+          ispreferred: false,
+        })
+    }
+
+    // Update local state
+    setLines((prev) => prev.map((l) =>
+      l.polineid === line.polineid ? { ...l, suppliersku: trimmed || null } : l
+    ))
+    setEditingSkuLineId(null)
   }
 
   // ── Supplier CSV export ────────────────────────────────────────
@@ -906,6 +965,7 @@ export default function PurchaseOrderDetailPage() {
                   <tr>
                     <th>SKU</th>
                     <th>Product</th>
+                    <th>Supplier Code</th>
                     <th className="pf-col-right">Ordered</th>
                     <th className="pf-col-right">Received</th>
                     <th className="pf-col-right">Unit Cost (USD)</th>
@@ -920,6 +980,37 @@ export default function PurchaseOrderDetailPage() {
                     <tr key={line.polineid}>
                       <td className="pf-sku">{line.sku}</td>
                       <td className="pf-productname">{line.productname}</td>
+                      <td>
+                        {editingSkuLineId === line.polineid ? (
+                          <input
+                            className="pf-input pf-input-sm pf-input-mono"
+                            style={{ width: '110px' }}
+                            autoFocus
+                            value={editingSkuValue}
+                            onChange={(e) => setEditingSkuValue(e.target.value)}
+                            onBlur={() => saveSupplierSku(line, editingSkuValue)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveSupplierSku(line, editingSkuValue)
+                              if (e.key === 'Escape') setEditingSkuLineId(null)
+                            }}
+                          />
+                        ) : (
+                          <span
+                            onClick={() => { setEditingSkuLineId(line.polineid); setEditingSkuValue(line.suppliersku || '') }}
+                            title="Click to edit supplier code"
+                            style={{
+                              cursor: 'pointer',
+                              fontFamily: 'monospace',
+                              fontSize: '0.85rem',
+                              color: line.suppliersku ? 'var(--text)' : 'var(--text-faint)',
+                              borderBottom: '1px dashed var(--border)',
+                              paddingBottom: '1px',
+                            }}
+                          >
+                            {line.suppliersku || 'Add code…'}
+                          </span>
+                        )}
+                      </td>
                       <td className="pf-col-right">
                         {canEditLines ? (
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.2rem' }}>
