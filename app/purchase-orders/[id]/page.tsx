@@ -95,6 +95,10 @@ export default function PurchaseOrderDetailPage() {
   const [receiptSaving, setReceiptSaving] = useState(false)
   const [receiptError, setReceiptError]   = useState<string | null>(null)
 
+  // Backorder alert — shown after a goods receipt if open backorders exist for the product
+  type BackorderAlert = { ordernumber: string; orderid: number }
+  const [backorderAlerts, setBackorderAlerts] = useState<BackorderAlert[]>([])
+
   // Putaway list modal
   const [showPutaway, setShowPutaway] = useState(false)
 
@@ -460,12 +464,38 @@ export default function PurchaseOrderDetailPage() {
       setPO((p) => p ? { ...p, ...updates } : p)
     }
 
+    // ── Check for open backorders waiting on this product ────────
+    const { data: boLines } = await supabase
+      .from('tblorderlines')
+      .select('orderid')
+      .eq('productid', receiptLine.productid)
+      .eq('status', 'Pending')
+
+    if (boLines && boLines.length > 0) {
+      const boOrderIds = [...new Set(boLines.map((l: any) => l.orderid))]
+
+      // Separate query — FK join workaround
+      const { data: boOrders } = await supabase
+        .from('tblorders')
+        .select('orderid, ordernumber')
+        .in('orderid', boOrderIds)
+        .eq('isbackorder', true)
+        .in('status', ['New', 'Printed', 'Picking'])
+
+      if (boOrders && boOrders.length > 0) {
+        setBackorderAlerts(boOrders.map((o: any) => ({
+          ordernumber: o.ordernumber,
+          orderid:     o.orderid,
+        })))
+      }
+    }
+
     setReceiptSaving(false)
     closeReceipt()
     await fetchPO()
   }
 
-  // ── Landed cost calculation ────────────────────────────────────
+  // ── Landed cost calculation ──────────────────────────────────── ────────────────────────────────────
   const calculateLandedCosts = async () => {
     const rate = parseFloat(exchangeRate)
     const freight = parseFloat(freightUSD) || 0
@@ -717,6 +747,54 @@ export default function PurchaseOrderDetailPage() {
         ))}
         {isCancelled && <div className="pf-status-step pf-step-cancelled">Cancelled</div>}
       </div>
+
+      {/* Backorder alert — shown after goods receipt if open backorders exist */}
+      {backorderAlerts.length > 0 && (
+        <div style={{
+          background: 'var(--pf-warning-bg, #fffbeb)',
+          border: '1px solid var(--pf-warning, #f59e0b)',
+          borderRadius: '6px',
+          padding: '14px 18px',
+          marginBottom: '16px',
+          fontSize: '0.9rem',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <strong style={{ color: 'var(--pf-warning, #b45309)' }}>
+                ⚠ {backorderAlerts.length === 1 ? 'Backorder' : 'Backorders'} waiting on this stock
+              </strong>
+              <p style={{ margin: '6px 0 0 0', color: 'var(--text-muted)' }}>
+                The following {backorderAlerts.length === 1 ? 'order has' : 'orders have'} pending lines for the product you just received:
+              </p>
+              <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {backorderAlerts.map((a) => (
+                  <a
+                    key={a.orderid}
+                    href={`/orders/${a.orderid}`}
+                    style={{
+                      color: 'var(--pf-brand)',
+                      fontWeight: 600,
+                      textDecoration: 'underline',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    {a.ordernumber}
+                  </a>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={() => setBackorderAlerts([])}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--text-muted)', fontSize: '1.1rem', padding: '0 0 0 16px',
+                flexShrink: 0,
+              }}
+              title="Dismiss"
+            >✕</button>
+          </div>
+        </div>
+      )}
 
       <div className="pf-order-grid">
 
