@@ -495,6 +495,61 @@ export default function PurchaseOrderDetailPage() {
     await fetchPO()
   }
 
+  // ── Supplier CSV export ────────────────────────────────────────
+  const exportSupplierCSV = async () => {
+    if (!po || lines.length === 0) return
+
+    // Fetch supplier SKUs for all products on this PO — separate query (FK join workaround)
+    const productIds = lines.map((l) => l.productid)
+    const { data: supplierLinks } = await supabase
+      .from('tblproductsuppliers')
+      .select('productid, suppliersku')
+      .eq('supplierid', po.supplierid)
+      .in('productid', productIds)
+
+    const supplierSkuMap = new Map<number, string>()
+    for (const row of (supplierLinks || []) as any[]) {
+      if (row.suppliersku) supplierSkuMap.set(row.productid, row.suppliersku)
+    }
+
+    // Build CSV rows — sorted by supplier SKU, then our SKU
+    const sorted = [...lines].sort((a, b) => {
+      const skuA = supplierSkuMap.get(a.productid) || ''
+      const skuB = supplierSkuMap.get(b.productid) || ''
+      if (skuA && skuB) return skuA.localeCompare(skuB)
+      if (skuA) return -1
+      if (skuB) return 1
+      return a.sku.localeCompare(b.sku)
+    })
+
+    const escapeCSV = (val: string | number | null | undefined) => {
+      const str = String(val ?? '')
+      return str.includes(',') || str.includes('"') || str.includes('\n')
+        ? `"${str.replace(/"/g, '""')}"`
+        : str
+    }
+
+    const headers = ['Supplier Code', 'Our SKU', 'Product Name', 'Qty Ordered', 'Unit Cost (USD)']
+    const rows = sorted.map((line) => [
+      escapeCSV(supplierSkuMap.get(line.productid) || ''),
+      escapeCSV(line.sku),
+      escapeCSV(line.productname),
+      escapeCSV(line.quantityordered),
+      escapeCSV(line.unitcostusd > 0 ? line.unitcostusd.toFixed(2) : ''),
+    ].join(','))
+
+    const csv = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${po.ponumber || 'po'}-order.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   // ── Landed cost calculation ──────────────────────────────────── ────────────────────────────────────
   const calculateLandedCosts = async () => {
     const rate = parseFloat(exchangeRate)
@@ -619,6 +674,13 @@ export default function PurchaseOrderDetailPage() {
           {canClosePO && (
             <button className="pf-btn-primary" onClick={() => setShowClosePO(true)}>
               ✓ Close PO
+            </button>
+          )}
+
+          {/* Supplier CSV export */}
+          {lines.length > 0 && !isCancelled && (
+            <button className="pf-btn-secondary" onClick={exportSupplierCSV}>
+              ↓ Supplier CSV
             </button>
           )}
 
