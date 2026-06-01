@@ -53,7 +53,7 @@ export default function ProductsPage() {
     if (activeFilter === 'active') query = query.eq('isactive', true)
     if (activeFilter === 'inactive') query = query.eq('isactive', false)
     if (categoryFilter) query = query.eq('category', categoryFilter)
-    if (search.trim()) query = query.or(`sku.ilike.%${search.trim()}%,productname.ilike.%${search.trim()}%`)
+    if (search.trim()) query = query.or(`sku.ilike.%${search.trim()}%,productname.ilike.%${search.trim()}%,altsku.ilike.%${search.trim()}%`)
 
     const { data, error, count } = await query
 

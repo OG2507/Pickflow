@@ -370,7 +370,7 @@ function ProductHistory({ range }: { range: DateRange }) {
     const { data } = await supabase
       .from('tblproducts')
       .select('sku, productname')
-      .or(`sku.ilike.%${term}%,productname.ilike.%${term}%`)
+      .or(`sku.ilike.%${term}%,productname.ilike.%${term}%,altsku.ilike.%${term}%`)
       .eq('isactive', true)
       .limit(10)
     setResults(data || [])

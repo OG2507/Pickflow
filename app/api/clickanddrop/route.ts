@@ -137,6 +137,8 @@ export async function POST(request: Request) {
       ],
       postageDetails: {
         serviceCode,
+        receiveEmailNotification: true,
+        receiveSmsNotification:   true,
       },
     }
 

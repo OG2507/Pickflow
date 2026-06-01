@@ -384,6 +384,12 @@ export default function ProductDetailPage() {
             </div>
 
             <div className="pf-field">
+              <label className="pf-label">Alternative Search Code</label>
+              <input className="pf-input pf-input-mono" name="altsku" value={form.altsku || ''} onChange={handleChange} placeholder="e.g. PR1-20" />
+              <small className="pf-field-hint">Used to find this product when searching by an alternative code (e.g. a legacy PR code)</small>
+            </div>
+
+            <div className="pf-field">
               <label className="pf-label">Description</label>
               <textarea className="pf-input pf-textarea" name="description" value={form.description || ''} onChange={handleChange} rows={3} />
             </div>

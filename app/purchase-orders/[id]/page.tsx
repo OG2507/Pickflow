@@ -208,7 +208,7 @@ export default function PurchaseOrderDetailPage() {
         .from('tblproducts')
         .select('productid, sku, productname, costprice')
         .eq('isactive', true)
-        .or(`sku.ilike.%${term}%,productname.ilike.%${term}%`)
+        .or(`sku.ilike.%${term}%,productname.ilike.%${term}%,altsku.ilike.%${term}%`)
         .limit(8)
       setProductResults(data || [])
     }

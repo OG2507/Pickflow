@@ -31,6 +31,7 @@ export type Product = {
   bagsizedefault: number
   productnotes: string | null
   productimagepath: string | null
+  altsku: string | null               // Alternative search code (e.g. PR code for patches)
   shopwiredretailid: string | null    // Shopwired product ID for the retail listing
   shopwiredwholesaleid: string | null // Shopwired product ID for the wholesale listing
   dateadded: string | null

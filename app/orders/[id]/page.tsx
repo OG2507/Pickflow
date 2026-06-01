@@ -361,7 +361,7 @@ export default function OrderDetailPage() {
         .from('tblproducts')
         .select('productid, sku, productname, category, salesprice, wholesaleprice, reducedwholesaleprice, pricingcode, vatstatus, weight, isactive')
         .eq('isactive', true)
-        .or(`sku.ilike.%${term}%,productname.ilike.%${term}%`)
+        .or(`sku.ilike.%${term}%,productname.ilike.%${term}%,altsku.ilike.%${term}%`)
         .limit(8)
 
       if (error) console.error('Product search error:', error)
@@ -1424,9 +1424,9 @@ export default function OrderDetailPage() {
       }
     }
 
-    // Advance original order to Despatched
+    // Advance original order to Dispatched
     const prevStatusDisp = order.status
-    const updates = { status: 'Despatched', despatchdate: new Date().toISOString() }
+    const updates = { status: 'Dispatched', despatchdate: new Date().toISOString() }
     await supabase.from('tblorders').update(updates).eq('orderid', id)
     setOrder((prev) => prev ? { ...prev, ...updates } : prev)
     logActivity({
@@ -1436,7 +1436,7 @@ export default function OrderDetailPage() {
       entityLabel: order.ordernumber || `Order ${id}`,
       fieldName:   'status',
       oldValue:    prevStatusDisp,
-      newValue:    'Despatched',
+      newValue:    'Dispatched',
       notes:       backorderOrderNumber
         ? `Confirm Pick — backorder created: ${backorderOrderNumber}`
         : 'Confirm Pick',
