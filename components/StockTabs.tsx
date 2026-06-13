@@ -8,6 +8,7 @@ const TABS = [
   { label: 'Adjust',       href: '/stock/adjustment' },
   { label: 'Movements',    href: '/stock/movements' },
   { label: 'Stock Check',  href: '/stock/check' },
+  { label: 'Bulk Check',   href: '/stock/bulkcheck' },
   { label: 'Cycle Count',  href: '/stock/cyclecount' },
 ]
 

@@ -14,6 +14,7 @@ type StockRow = {
   locationcode: string
   locationid: number
   locationtype: string | null
+  pickingbintracked: boolean
 }
 
 const REASONS = [
@@ -34,7 +35,7 @@ export default function StockAdjustmentPage() {
   const [error, setError] = useState<string | null>(null)
 
   // Per-row adjustment state
-  const [adjustments, setAdjustments] = useState<Record<number, { newQty: string; reason: string }>>({})
+  const [adjustments, setAdjustments] = useState<Record<number, { newQty: string; reason: string; tracked: boolean }>>({})
   const [saving, setSaving] = useState<number | null>(null)
   const [savedRows, setSavedRows] = useState<Set<number>>(new Set())
 
@@ -59,21 +60,29 @@ export default function StockAdjustmentPage() {
 
       const { data } = await supabase
         .from('tblstocklevels')
-        .select(`stocklevelid, productid, quantityonhand, locationid,
-          tblproducts (sku, productname)`)
+        .select(`stocklevelid, productid, quantityonhand, locationid`)
         .eq('locationid', loc.locationid)
         .order('productid')
+
+      // Fetch products separately — tblstocklevels → tblproducts FK not in schema cache
+      const productIds = (data || []).map((s: any) => s.productid)
+      const { data: prods } = await supabase
+        .from('tblproducts')
+        .select('productid, sku, productname, pickingbintracked')
+        .in('productid', productIds)
+      const prodMap = new Map((prods || []).map((p: any) => [p.productid, p]))
 
       stock = (data || []).map((s: any) => ({
         ...s,
         locationcode: loc.locationcode,
         locationtype: loc.locationtype || null,
+        tblproducts: prodMap.get(s.productid) || { sku: '', productname: '', pickingbintracked: false },
       }))
 
     } else {
       const { data: prod } = await supabase
         .from('tblproducts')
-        .select('productid, sku, productname')
+        .select('productid, sku, productname, pickingbintracked')
         .eq('sku', searchCode.trim().toUpperCase())
         .single()
 
@@ -91,7 +100,7 @@ export default function StockAdjustmentPage() {
         .from('tbllocations')
         .select('locationid, locationcode, locationtype')
         .in('locationid', locationIds)
-      const locMap = new Map((locs || []).map((l: any) => [l.locationid, l]))
+      const locMap = new Map<number, { locationcode: string; locationtype: string | null }>((locs || []).map((l: any) => [l.locationid, l]))
 
       stock = (data || []).map((s: any) => ({
         stocklevelid: s.stocklevelid,
@@ -100,25 +109,32 @@ export default function StockAdjustmentPage() {
         locationid: s.locationid,
         locationcode: locMap.get(s.locationid)?.locationcode || '',
         locationtype: locMap.get(s.locationid)?.locationtype || null,
-        tblproducts: { sku: prod.sku, productname: prod.productname },
+        tblproducts: { sku: prod.sku, productname: prod.productname, pickingbintracked: prod.pickingbintracked },
       }))
     }
 
     const result: StockRow[] = stock.map((s: any) => ({
-      stocklevelid:  s.stocklevelid,
-      productid:     s.productid,
-      sku:           s.tblproducts?.sku || '',
-      productname:   s.tblproducts?.productname || '',
-      quantityonhand: s.quantityonhand,
-      locationcode:  s.locationcode,
-      locationid:    s.locationid,
-      locationtype:  s.locationtype || null,
+      stocklevelid:      s.stocklevelid,
+      productid:         s.productid,
+      sku:               s.tblproducts?.sku || '',
+      productname:       s.tblproducts?.productname || '',
+      quantityonhand:    s.quantityonhand,
+      locationcode:      s.locationcode,
+      locationid:        s.locationid,
+      locationtype:      s.locationtype || null,
+      pickingbintracked: s.tblproducts?.pickingbintracked ?? false,
     }))
 
     setRows(result)
 
-    const initAdj: Record<number, { newQty: string; reason: string }> = {}
-    result.forEach(r => { initAdj[r.stocklevelid] = { newQty: String(r.quantityonhand), reason: 'Stock check' } })
+    const initAdj: Record<number, { newQty: string; reason: string; tracked: boolean }> = {}
+    result.forEach(r => {
+      initAdj[r.stocklevelid] = {
+        newQty: String(r.quantityonhand),
+        reason: 'Stock check',
+        tracked: r.pickingbintracked,
+      }
+    })
     setAdjustments(initAdj)
 
     setLoading(false)
@@ -135,6 +151,7 @@ export default function StockAdjustmentPage() {
 
     const diff = newQty - row.quantityonhand
     const qtyChanged = diff !== 0
+    const trackedChanged = adj.tracked !== row.pickingbintracked
 
     if (qtyChanged) {
       // Update stock level
@@ -166,13 +183,27 @@ export default function StockAdjustmentPage() {
         .eq('stocklevelid', row.stocklevelid)
     }
 
-    // Update local state
+    // Update pickingbintracked on the product if it changed
+    if (trackedChanged) {
+      const { error: trackErr } = await supabase
+        .from('tblproducts')
+        .update({ pickingbintracked: adj.tracked })
+        .eq('productid', row.productid)
+      if (trackErr) console.error('Tracked update error:', trackErr.message)
+    }
+
+    // Update local state — reflect new tracked value in the row
     setRows(prev => prev.map(r =>
-      r.stocklevelid === row.stocklevelid ? { ...r, quantityonhand: newQty } : r
+      r.stocklevelid === row.stocklevelid
+        ? { ...r, quantityonhand: newQty, pickingbintracked: adj.tracked }
+        : r
     ))
     setSavedRows(prev => new Set([...prev, row.stocklevelid]))
     setSaving(null)
   }
+
+  // Whether any rows are picking bin rows (controls column visibility)
+  const hasPickingBinRows = rows.some(r => r.locationtype === 'Picking Bin')
 
   return (
     <div className="pf-page">
@@ -239,6 +270,7 @@ export default function StockAdjustmentPage() {
                 <th className="pf-col-right">Current Qty</th>
                 <th>New Qty</th>
                 <th>Reason</th>
+                {hasPickingBinRows && <th style={{ textAlign: 'center' }}>Tracked</th>}
                 <th></th>
               </tr>
             </thead>
@@ -275,6 +307,24 @@ export default function StockAdjustmentPage() {
                       {REASONS.map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </td>
+                  {hasPickingBinRows && (
+                    <td style={{ textAlign: 'center' }}>
+                      {row.locationtype === 'Picking Bin' ? (
+                        <input
+                          type="checkbox"
+                          checked={adjustments[row.stocklevelid]?.tracked ?? row.pickingbintracked}
+                          onChange={(e) => setAdjustments(prev => ({
+                            ...prev,
+                            [row.stocklevelid]: { ...prev[row.stocklevelid], tracked: e.target.checked }
+                          }))}
+                          disabled={savedRows.has(row.stocklevelid)}
+                          title="Picking Bin Tracked"
+                        />
+                      ) : (
+                        <span style={{ color: 'var(--colour-muted)', fontSize: '0.75rem' }}>—</span>
+                      )}
+                    </td>
+                  )}
                   <td>
                     {savedRows.has(row.stocklevelid) ? (
                       <span className="pf-success-msg">Saved</span>
