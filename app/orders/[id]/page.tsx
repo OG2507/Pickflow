@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { logActivity, logChanges } from '@/lib/activity'
@@ -606,6 +606,13 @@ export default function OrderDetailPage() {
   }
 
   const [confirmingPick, setConfirmingPick] = useState(false)
+  // Synchronous re-entry lock. State updates are async, so a genuine
+  // double-click (two events in the same tick) can slip past the
+  // confirmingPick state guard. A ref flips immediately and blocks it.
+  const pickInFlight = useRef(false)
+  // Guards the pre-pick phase (availability check + modal open) so a
+  // rapid double-click on the main button can't run the check twice.
+  const confirmClickBusy = useRef(false)
   const [pickError, setPickError] = useState<string | null>(null)
   const [showTrackingModal, setShowTrackingModal] = useState(false)
   const [pendingTrackingNumber, setPendingTrackingNumber] = useState('')
@@ -1156,6 +1163,17 @@ export default function OrderDetailPage() {
     shortfallDecisions?: Map<number, { backorder: number; cancel: number }>
   ) => {
     if (!order) return
+
+    // ── Re-entry guard ────────────────────────────────────────────
+    // Block a second concurrent run (double-click, modal button mashing).
+    // The ref flips synchronously so it catches clicks in the same tick;
+    // confirmingPick state alone updates too late to stop them.
+    if (pickInFlight.current) {
+      console.warn('[confirmPick] BLOCKED — already in flight, ignoring duplicate call')
+      return
+    }
+    pickInFlight.current = true
+
     console.log(`[confirmPick] STARTED — orderid=${order.orderid} lines=${lines.length}`)
     setConfirmingPick(true)
     setPickError(null)
@@ -1274,9 +1292,10 @@ export default function OrderDetailPage() {
       return quantityordered - remaining
     }
 
-    const pickedResults = new Map<number, number>()
+    try {
+      const pickedResults = new Map<number, number>()
 
-    for (const line of lines) {
+      for (const line of lines) {
       if (!line.productid) continue
 
       // Work out how many to attempt picking. If a shortfall decision exists for this line,
@@ -1446,11 +1465,22 @@ export default function OrderDetailPage() {
       setCreatedBackorderNumber(backorderOrderNumber)
     }
 
-    setConfirmingPick(false)
+      setConfirmingPick(false)
+    } catch (err: any) {
+      console.error('[confirmPick] FAILED:', err)
+      setPickError(err?.message || 'Confirm Pick failed. No status change was saved — please retry.')
+      setConfirmingPick(false)
+    } finally {
+      // Always release the re-entry lock, success or failure, so the
+      // button never gets stuck disabled after an error.
+      pickInFlight.current = false
+    }
   }
 
   // ── Backorder modal confirm ────────────────────────────────────
   const handleBackorderModalConfirm = async () => {
+    if (confirmingPick || pickInFlight.current) return
+    setConfirmingPick(true)
     setShowBackorderModal(false)
     const decisions = new Map<number, { backorder: number; cancel: number }>()
     for (const s of shortfallLines) {
@@ -1480,6 +1510,11 @@ export default function OrderDetailPage() {
   // Shopwired and eBay orders skip the modal — labels come from Shopwired directly.
   const handleConfirmPickClick = async () => {
     if (!order) return
+    if (confirmClickBusy.current || pickInFlight.current) {
+      console.warn('[confirmPick] click ignored — already processing')
+      return
+    }
+    confirmClickBusy.current = true
     console.log(`[confirmPick] button clicked — ordersource=${order.ordersource} status=${order.status}`)
 
     // ── Step 1: Check for stock shortfalls ────────────────────────
@@ -1503,24 +1538,38 @@ export default function OrderDetailPage() {
     }
 
     if (shortfalls.length > 0) {
-      // Show backorder decision modal
+      // Show backorder decision modal — release the click guard; the
+      // modal's own handler takes over the lock from here.
       setShortfallLines(shortfalls)
       setShowBackorderModal(true)
+      confirmClickBusy.current = false
       return
     }
 
     // ── Step 2: No shortfalls — normal flow ───────────────────────
     const isWholesale = order.ordersource !== 'Shopwired' && order.ordersource !== 'eBay'
     if (isWholesale) {
+      // Tracking modal takes over — release the click guard; the modal's
+      // own handler re-acquires the lock before any stock moves.
       setPendingTrackingNumber(order.trackingnumber || '')
       setShowTrackingModal(true)
+      confirmClickBusy.current = false
     } else {
-      confirmPick()
+      // Shopwired/eBay: go straight to confirmPick. confirmPick's own
+      // pickInFlight lock prevents re-entry; release the click guard once
+      // it resolves.
+      try {
+        await confirmPick()
+      } finally {
+        confirmClickBusy.current = false
+      }
     }
   }
 
   const handleTrackingModalConfirm = async () => {
     if (!order) return
+    if (confirmingPick || pickInFlight.current) return
+    setConfirmingPick(true)
     setShowTrackingModal(false)
     if (pendingTrackingNumber.trim()) {
       await supabase
@@ -2413,6 +2462,7 @@ export default function OrderDetailPage() {
               <button
                 className="pf-btn-primary"
                 onClick={handleBackorderModalConfirm}
+                disabled={confirmingPick}
               >
                 Confirm &amp; Despatch
               </button>
@@ -2457,12 +2507,14 @@ export default function OrderDetailPage() {
               <button
                 className="pf-btn-secondary"
                 onClick={() => { setShowTrackingModal(false); confirmPick() }}
+                disabled={confirmingPick}
               >
                 Skip for now
               </button>
               <button
                 className="pf-btn-primary"
                 onClick={handleTrackingModalConfirm}
+                disabled={confirmingPick}
               >
                 {pendingTrackingNumber.trim() ? 'Save & Confirm Pick' : 'Confirm Pick'}
               </button>
