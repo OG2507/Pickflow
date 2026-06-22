@@ -208,13 +208,19 @@ export async function POST() {
         continue
       }
 
-      // Generate JKS order number
-      const orderNum = `JKS-${String(newOrder.orderid).padStart(5, '25769')}-${isEbay ? '400' : '100'}`
+      // Generate order number.
+      // Prefix is the original Shopwired order reference (the customer-facing
+      // Shopwired order number), falling back to 'JKS' if Shopwired didn't
+      // supply one — so we never produce a number starting with a bare dash.
+      // The rest of the format (padded orderid + 100/400 suffix) is unchanged.
+      const swReference  = String(swOrder.reference || '').trim()
+      const numberPrefix = swReference || 'JKS'
+      const orderNum = `${numberPrefix}-${String(newOrder.orderid).padStart(5, '25769')}-${isEbay ? '400' : '100'}`
       await supabase
         .from('tblorders')
         .update({ 
           ordernumber: orderNum,
-          externalreference: String(swOrder.reference || ''),
+          externalreference: swReference,
         })
         .eq('orderid', newOrder.orderid)
 

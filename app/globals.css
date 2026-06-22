@@ -659,11 +659,11 @@ body {
 .pf-header-inner {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 0 2rem;
-  height: 64px;
+  padding: 0 1.5rem;
+  height: 72px;
   display: flex;
   align-items: center;
-  gap: 2rem;
+  gap: 1.25rem;
 }
 
 /* ── Logo ────────────────────────────────────────────────────── */
@@ -699,35 +699,32 @@ body {
 .pf-nav {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.375rem;
   flex: 1;
   flex-wrap: nowrap;
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .pf-nav-link {
   display: block;
-  padding: 0.375rem 0.625rem;
-  font-size: 0.8125rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
   font-weight: 500;
-  color: #152039;
+  color: #3a4252;
   text-decoration: none;
   border-radius: var(--radius);
   white-space: nowrap;
   transition: background 0.15s, color 0.15s;
-  opacity: 0.7;
 }
 
 .pf-nav-link:hover {
   background: #f0fdf9;
   color: #152039;
-  opacity: 1;
 }
 
 .pf-nav-active {
   background: #f0fdf9;
   color: #13C9A8;
-  opacity: 1;
   font-weight: 600;
 }
 
@@ -789,7 +786,7 @@ body {
 
 /* ── Responsive — hide desktop nav, show hamburger ───────────── */
 
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .pf-nav {
     display: none;
   }
@@ -1895,11 +1892,28 @@ body {
   border: none;
   cursor: pointer;
   font-family: var(--font-sans);
-  font-size: 0.875rem;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #3a4252;
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0;
+  gap: 0.3rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.pf-nav-dropdown-trigger:hover {
+  background: #f0fdf9;
+  color: #152039;
+}
+
+/* Trigger highlighted when one of its children is the current page */
+.pf-nav-dropdown-trigger.pf-nav-active {
+  background: #f0fdf9;
+  color: #13C9A8;
+  font-weight: 600;
 }
 
 .pf-nav-chevron {
@@ -1909,6 +1923,7 @@ body {
 }
 
 .pf-nav-dropdown {
+  display: none;
   position: absolute;
   top: calc(100% + 0.5rem);
   left: 50%;
@@ -1917,15 +1932,31 @@ body {
   border: 1px solid var(--border-dark);
   border-radius: var(--radius);
   box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-  min-width: 140px;
+  min-width: 160px;
   z-index: 100;
   overflow: hidden;
 }
 
+/* Open on hover (desktop) or keyboard focus. A small invisible bridge
+   keeps the menu open while the cursor travels from trigger to dropdown. */
+.pf-nav-dropdown-wrap:hover .pf-nav-dropdown,
+.pf-nav-dropdown-wrap:focus-within .pf-nav-dropdown {
+  display: block;
+}
+
+.pf-nav-dropdown-wrap::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 0.5rem;
+}
+
 .pf-nav-dropdown-item {
   display: block;
-  padding: 0.625rem 1rem;
-  font-size: 0.875rem;
+  padding: 0.6875rem 1rem;
+  font-size: 1rem;
   color: var(--text);
   text-decoration: none;
   transition: background 0.1s;

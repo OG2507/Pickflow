@@ -3,27 +3,57 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { clearPermissionCache } from '@/lib/usePermissions'
 
-const NAV_ITEMS = [
-  { label: 'Products',        href: '/products' },
-  { label: 'Clients',         href: '/clients' },
-  { label: 'Suppliers',       href: '/suppliers' },
-  { label: 'Stock',           href: '/stock' },
-  { label: 'Reorder',         href: '/stock/reorder' },
-  { label: 'Orders',          href: '/orders' },
-  { label: 'Purchase Orders', href: '/purchase-orders' },
-  { label: 'Quotes',          href: '/quotes' },
-  { label: 'Reports',         href: '/reports' },
-  { label: 'Tools',           href: '/tools' },
-  { label: 'Admin',           href: '/admin' },
+// Navigation structure.
+// A 'link' is a flat top-level item. A 'group' is a dropdown with children.
+type NavLink = { label: string; href: string }
+type NavItem =
+  | { type: 'link'; label: string; href: string }
+  | { type: 'group'; label: string; children: NavLink[] }
+
+const NAV: NavItem[] = [
+  { type: 'link', label: 'Orders', href: '/orders' },
+  {
+    type: 'group',
+    label: 'Catalogue',
+    children: [
+      { label: 'Products',        href: '/products' },
+      { label: 'Suppliers',       href: '/suppliers' },
+      { label: 'Purchase Orders', href: '/purchase-orders' },
+    ],
+  },
+  {
+    type: 'group',
+    label: 'Stock',
+    children: [
+      { label: 'Stock',   href: '/stock' },
+      { label: 'Reorder', href: '/stock/reorder' },
+    ],
+  },
+  {
+    type: 'group',
+    label: 'Sales',
+    children: [
+      { label: 'Quotes',  href: '/quotes' },
+      { label: 'Clients', href: '/clients' },
+    ],
+  },
+  {
+    type: 'group',
+    label: 'More',
+    children: [
+      { label: 'Reports', href: '/reports' },
+      { label: 'Tools',   href: '/tools' },
+      { label: 'Admin',   href: '/admin' },
+    ],
+  },
 ]
 
 export default function Header() {
   const pathname = usePathname()
-  const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [displayName, setDisplayName] = useState<string | null>(null)
@@ -54,6 +84,10 @@ export default function Header() {
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + '/')
 
+  // A group is highlighted when any of its children is the current page.
+  const isGroupActive = (children: NavLink[]) =>
+    children.some((c) => isActive(c.href))
+
   return (
     <header className="pf-header">
       <div className="pf-header-inner">
@@ -76,15 +110,38 @@ export default function Header() {
         </Link>
 
         <nav className="pf-nav">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`pf-nav-link ${isActive(item.href) ? 'pf-nav-active' : ''}`}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {NAV.map((item) =>
+            item.type === 'link' ? (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`pf-nav-link ${isActive(item.href) ? 'pf-nav-active' : ''}`}
+              >
+                {item.label}
+              </Link>
+            ) : (
+              <div key={item.label} className="pf-nav-dropdown-wrap">
+                <button
+                  type="button"
+                  className={`pf-nav-dropdown-trigger ${isGroupActive(item.children) ? 'pf-nav-active' : ''}`}
+                >
+                  {item.label}
+                  <span className="pf-nav-chevron">▾</span>
+                </button>
+                <div className="pf-nav-dropdown">
+                  {item.children.map((child) => (
+                    <Link
+                      key={child.href}
+                      href={child.href}
+                      className={`pf-nav-dropdown-item ${isActive(child.href) ? 'pf-nav-dropdown-active' : ''}`}
+                    >
+                      {child.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )
+          )}
         </nav>
 
         <div className="pf-header-right">
@@ -122,16 +179,32 @@ export default function Header() {
 
       {menuOpen && (
         <nav className="pf-mobile-nav">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`pf-mobile-nav-link ${isActive(item.href) ? 'pf-nav-active' : ''}`}
-              onClick={() => setMenuOpen(false)}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {NAV.map((item) =>
+            item.type === 'link' ? (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`pf-mobile-nav-link ${isActive(item.href) ? 'pf-nav-active' : ''}`}
+                onClick={() => setMenuOpen(false)}
+              >
+                {item.label}
+              </Link>
+            ) : (
+              <div key={item.label}>
+                <div className="pf-mobile-nav-group-label">{item.label}</div>
+                {item.children.map((child) => (
+                  <Link
+                    key={child.href}
+                    href={child.href}
+                    className={`pf-mobile-nav-link pf-mobile-nav-child ${isActive(child.href) ? 'pf-nav-active' : ''}`}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    {child.label}
+                  </Link>
+                ))}
+              </div>
+            )
+          )}
           <button className="pf-mobile-nav-link" onClick={handleLogout}>
             Sign out
           </button>
