@@ -624,6 +624,10 @@ export default function ProductDetailPage() {
                 <label className="pf-label">Default Bag Size</label>
                 <input className="pf-input pf-input-num" type="number" min="0" name="bagsizedefault" value={form.bagsizedefault ?? ''} onChange={handleChange} />
               </div>
+              <div className="pf-field">
+                <label className="pf-label">Picking Bin Max</label>
+                <input className="pf-input pf-input-num" type="number" min="0" name="binmaxqty" value={form.binmaxqty ?? ''} onChange={handleChange} />
+              </div>
             </div>
           </div>
 

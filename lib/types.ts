@@ -29,6 +29,7 @@ export type Product = {
   isdropship: boolean
   pickingbintracked: boolean
   bagsizedefault: number
+  binmaxqty: number
   productnotes: string | null
   productimagepath: string | null
   altsku: string | null               // Alternative search code (e.g. PR code for patches)

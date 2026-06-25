@@ -14,11 +14,13 @@ type BulkRow = {
   locationid: number
   locationtype: string
   pickingbintracked: boolean
+  binmaxqty: number
 }
 
 type RowState = {
   newQty: string
   tracked: boolean
+  binMax: string
   saved: boolean
   saving: boolean
   changed: boolean
@@ -83,12 +85,12 @@ export default function BulkCheckPage() {
     const productIds = [...new Set((stock || []).map((s: any) => s.productid))]
     const { data: prods, error: prodErr } = await supabase
       .from('tblproducts')
-      .select('productid, sku, productname, pickingbintracked')
+      .select('productid, sku, productname, pickingbintracked, binmaxqty')
       .in('productid', productIds)
 
     if (prodErr) { console.error(prodErr); setError('Error loading products'); setLoading(false); return }
 
-    const prodMap = new Map<number, { sku: string; productname: string; pickingbintracked: boolean }>((prods || []).map((p: any) => [p.productid, p]))
+    const prodMap = new Map<number, { sku: string; productname: string; pickingbintracked: boolean; binmaxqty: number }>((prods || []).map((p: any) => [p.productid, p]))
 
     const result: BulkRow[] = (stock || [])
       .filter((s: any) => locMap.has(s.locationid) && prodMap.has(s.productid))
@@ -105,6 +107,7 @@ export default function BulkCheckPage() {
           locationid:        s.locationid,
           locationtype:      loc?.locationtype || '',
           pickingbintracked: prod?.pickingbintracked ?? false,
+          binmaxqty:         prod?.binmaxqty ?? 0,
         }
       })
       .sort((a: BulkRow, b: BulkRow) =>
@@ -118,6 +121,7 @@ export default function BulkCheckPage() {
       initState[r.stocklevelid] = {
         newQty:  String(r.quantityonhand),
         tracked: r.pickingbintracked,
+        binMax:  String(r.binmaxqty),
         saved:   false,
         saving:  false,
         changed: false,
@@ -141,6 +145,20 @@ export default function BulkCheckPage() {
     }))
   }
 
+  const handleBinMaxChange = (stocklevelid: number, value: string) => {
+    setRowState(prev => ({
+      ...prev,
+      [stocklevelid]: { ...prev[stocklevelid], binMax: value, changed: true },
+    }))
+  }
+
+  // Bin Max only applies to picking bin rows.
+  const binMaxChanged = (row: BulkRow, s: RowState | undefined) => {
+    if (!s || row.locationtype !== 'Picking Bin') return false
+    const v = s.binMax.trim() === '' ? 0 : parseInt(s.binMax)
+    return !isNaN(v) && v >= 0 && v !== row.binmaxqty
+  }
+
   // Tab key navigation between qty inputs
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, stocklevelid: number) => {
     if (e.key === 'Enter' || e.key === 'Tab') {
@@ -162,7 +180,8 @@ export default function BulkCheckPage() {
       if (isNaN(newQty) || newQty < 0) return false
       const qtyChanged = newQty !== r.quantityonhand
       const trackedChanged = s.tracked !== r.pickingbintracked
-      return qtyChanged || trackedChanged
+      const bmChanged = binMaxChanged(r, s)
+      return qtyChanged || trackedChanged || bmChanged
     })
 
     if (toSave.length === 0) {
@@ -219,6 +238,15 @@ export default function BulkCheckPage() {
         if (trackErr) console.error('Tracked update error:', trackErr.message)
       }
 
+      if (binMaxChanged(row, s)) {
+        const bmVal = s.binMax.trim() === '' ? 0 : parseInt(s.binMax)
+        const { error: bmErr } = await supabase
+          .from('tblproducts')
+          .update({ binmaxqty: bmVal })
+          .eq('productid', row.productid)
+        if (bmErr) console.error('Bin max update error:', bmErr.message)
+      }
+
       savedCount++
     }
 
@@ -234,6 +262,7 @@ export default function BulkCheckPage() {
         ...r,
         quantityonhand: isNaN(newQty) ? r.quantityonhand : newQty,
         pickingbintracked: s.tracked,
+        binmaxqty: s.binMax.trim() === '' ? 0 : (isNaN(parseInt(s.binMax)) ? r.binmaxqty : parseInt(s.binMax)),
       }
     }))
 
@@ -272,7 +301,7 @@ export default function BulkCheckPage() {
     if (!s || s.saved) return false
     const newQty = parseInt(s.newQty)
     if (isNaN(newQty)) return false
-    return newQty !== r.quantityonhand || s.tracked !== r.pickingbintracked
+    return newQty !== r.quantityonhand || s.tracked !== r.pickingbintracked || binMaxChanged(r, s)
   }).length
 
   return (
@@ -378,7 +407,7 @@ export default function BulkCheckPage() {
           </h2>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
             Enter your actual counts. Tab or Enter to move to the next row.
-            {hasPickingBins && ' Tick Tracked to enable automatic stock deduction on picking.'}
+            {hasPickingBins && ' Tick Tracked to enable automatic stock deduction on picking. Set Bin Max for bins that cannot hold a full bag.'}
           </p>
           <div className="pf-table-wrap">
             <table className="pf-table">
@@ -390,6 +419,7 @@ export default function BulkCheckPage() {
                   <th className="pf-col-right">System Qty</th>
                   <th>Actual Count</th>
                   {hasPickingBins && <th style={{ textAlign: 'center' }}>Tracked</th>}
+                  {hasPickingBins && <th style={{ textAlign: 'center' }}>Bin Max</th>}
                   <th style={{ textAlign: 'center' }}>Status</th>
                 </tr>
               </thead>
@@ -400,7 +430,8 @@ export default function BulkCheckPage() {
                   const newQty = parseInt(s.newQty)
                   const qtyChanged = !isNaN(newQty) && newQty !== row.quantityonhand
                   const trackedChanged = s.tracked !== row.pickingbintracked
-                  const isChanged = qtyChanged || trackedChanged
+                  const bmChanged = binMaxChanged(row, s)
+                  const isChanged = qtyChanged || trackedChanged || bmChanged
                   const prevLocation = i > 0 ? rows[i - 1].locationcode : null
                   const isNewLocation = prevLocation !== row.locationcode
 
@@ -457,6 +488,28 @@ export default function BulkCheckPage() {
                               onChange={(e) => handleTrackedChange(row.stocklevelid, e.target.checked)}
                               disabled={s.saved}
                               title="Picking Bin Tracked — system will deduct stock automatically on picking"
+                            />
+                          ) : (
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>—</span>
+                          )}
+                        </td>
+                      )}
+                      {hasPickingBins && (
+                        <td style={{ textAlign: 'center' }}>
+                          {row.locationtype === 'Picking Bin' ? (
+                            <input
+                              className="pf-input pf-input-sm pf-input-num"
+                              type="number"
+                              min="0"
+                              value={s.binMax}
+                              onChange={(e) => handleBinMaxChange(row.stocklevelid, e.target.value)}
+                              onFocus={(e) => e.target.select()}
+                              disabled={s.saved}
+                              title="Picking bin maximum — the most units that physically fit in this bin. When a bag is opened, the bin tops up to this number and the rest stays in overflow. 0 = no limit."
+                              style={{
+                                maxWidth: 70,
+                                borderColor: bmChanged ? 'var(--accent)' : undefined,
+                              }}
                             />
                           ) : (
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>—</span>
