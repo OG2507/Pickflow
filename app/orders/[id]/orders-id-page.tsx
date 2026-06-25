@@ -1471,20 +1471,16 @@ export default function OrderDetailPage() {
       setPickError(err?.message || 'Confirm Pick failed. No status change was saved — please retry.')
       setConfirmingPick(false)
     } finally {
-      // Always release the re-entry lock AND clear the spinner, success or
-      // failure, so the button can never get stuck on 'Processing…'.
+      // Always release the re-entry lock, success or failure, so the
+      // button never gets stuck disabled after an error.
       pickInFlight.current = false
-      setConfirmingPick(false)
     }
   }
 
   // ── Backorder modal confirm ────────────────────────────────────
   const handleBackorderModalConfirm = async () => {
-    // Gate on the real re-entry lock only. confirmingPick is a cosmetic
-    // spinner owned by confirmPick; setting it here and then deferring to the
-    // tracking modal left it stranded true, which blocked the tracking modal's
-    // own confirm handler and hung the pick with no error.
-    if (pickInFlight.current) return
+    if (confirmingPick || pickInFlight.current) return
+    setConfirmingPick(true)
     setShowBackorderModal(false)
     const decisions = new Map<number, { backorder: number; cancel: number }>()
     for (const s of shortfallLines) {
@@ -1572,22 +1568,15 @@ export default function OrderDetailPage() {
 
   const handleTrackingModalConfirm = async () => {
     if (!order) return
-    // Gate on the real re-entry lock only — NOT the cosmetic confirmingPick
-    // spinner. Gating on confirmingPick is what let an orphaned spinner block
-    // this confirm permanently, with no error shown.
-    if (pickInFlight.current) return
+    if (confirmingPick || pickInFlight.current) return
+    setConfirmingPick(true)
     setShowTrackingModal(false)
     if (pendingTrackingNumber.trim()) {
-      // A failed tracking-number save must never strand the pick. Log and continue.
-      try {
-        await supabase
-          .from('tblorders')
-          .update({ trackingnumber: pendingTrackingNumber.trim() })
-          .eq('orderid', order.orderid)
-        setOrder((prev) => prev ? { ...prev, trackingnumber: pendingTrackingNumber.trim() } : prev)
-      } catch (err) {
-        console.error('[confirmPick] tracking number save failed — continuing with pick:', err)
-      }
+      await supabase
+        .from('tblorders')
+        .update({ trackingnumber: pendingTrackingNumber.trim() })
+        .eq('orderid', order.orderid)
+      setOrder((prev) => prev ? { ...prev, trackingnumber: pendingTrackingNumber.trim() } : prev)
     }
     // Check if we have stashed backorder decisions (came via backorder modal → tracking modal)
     const pendingDecisions: Map<number, { backorder: number; cancel: number }> | undefined =
@@ -2054,8 +2043,34 @@ export default function OrderDetailPage() {
                           outline: '1px solid var(--danger-border, #fca5a5)',
                         } : {}}
                       >
-                        <td className="pf-sku">{line.sku}</td>
-                        <td className="pf-productname">{line.productname}</td>
+                        <td className="pf-sku">
+                          {line.productid ? (
+                            <span
+                              className="pf-link"
+                              style={{ cursor: 'pointer', color: 'var(--pf-brand)' }}
+                              onClick={() => router.push(`/products/${line.productid}`)}
+                              title="Go to product"
+                            >
+                              {line.sku}
+                            </span>
+                          ) : (
+                            line.sku
+                          )}
+                        </td>
+                        <td className="pf-productname">
+                          {line.productid ? (
+                            <span
+                              className="pf-link"
+                              style={{ cursor: 'pointer', color: 'var(--pf-brand)' }}
+                              onClick={() => router.push(`/products/${line.productid}`)}
+                              title="Go to product"
+                            >
+                              {line.productname}
+                            </span>
+                          ) : (
+                            line.productname
+                          )}
+                        </td>
                         <td className="pf-col-right">
                           {!isCancelled && !isCompleted && !isPicking ? (
                             <input
