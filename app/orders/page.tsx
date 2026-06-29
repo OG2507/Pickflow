@@ -356,6 +356,7 @@ export default function OrdersPage() {
   const [exporting, setExporting] = useState(false)
   const [pendingRMCount, setPendingRMCount] = useState<number | null>(null)
   const [exportingRM, setExportingRM] = useState(false)
+  const [sendingCAD, setSendingCAD] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
   const PAGE_SIZE = 50
@@ -636,6 +637,34 @@ export default function OrdersPage() {
     await fetchOrders()
   }
 
+  const bulkSendToCAD = async () => {
+    const eligible = selectedOrders.filter(o => !o.isebay)
+    if (eligible.length === 0) return
+    setSendingCAD(true)
+    setSyncResult(null)
+    try {
+      const res  = await fetch('/api/clickanddrop-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderids: eligible.map(o => o.orderid) }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setSyncResult(
+          data.failCount > 0
+            ? `Sent ${data.successCount} to Click & Drop — ${data.failCount} failed`
+            : `Sent ${data.successCount} order${data.successCount !== 1 ? 's' : ''} to Click & Drop`
+        )
+      } else {
+        setSyncResult(`Click & Drop error: ${data.error || 'Unknown error'}`)
+      }
+    } catch (err: any) {
+      setSyncResult(`Error: ${err.message}`)
+    } finally {
+      setSendingCAD(false)
+    }
+  }
+
   return (
     <div className="pf-page">
       <div className="pf-page-header">
@@ -673,6 +702,11 @@ export default function OrdersPage() {
               {selectedOrders.some(o => o.status === 'Printed') && (
                 <button className="pf-btn-secondary" onClick={bulkMoveToPicking}>
                   → Move to Picking
+                </button>
+              )}
+              {selectedOrders.some(o => !o.isebay) && (
+                <button className="pf-btn-secondary" onClick={bulkSendToCAD} disabled={sendingCAD}>
+                  {sendingCAD ? 'Sending…' : `📦 Send to Click & Drop (${selectedOrders.filter(o => !o.isebay).length})`}
                 </button>
               )}
             </>
