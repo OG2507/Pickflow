@@ -35,8 +35,32 @@ export type Product = {
   altsku: string | null               // Alternative search code (e.g. PR code for patches)
   shopwiredretailid: string | null    // Shopwired product ID for the retail listing
   shopwiredwholesaleid: string | null // Shopwired product ID for the wholesale listing
+  enquiryformenabled: boolean         // Shows the "Ask about availability" button on this product's page
   dateadded: string | null
   lastmodified: string | null
+}
+
+export type StockEnquiry = {
+  enquiryid: number
+  createdat: string
+  customeremail: string
+  customername: string | null
+  status: string
+  notes: string | null
+}
+
+export type StockEnquiryLine = {
+  enquirylineid: number
+  enquiryid: number
+  productid: number | null
+  skurequested: string | null
+  quantityrequested: number
+  verdict: 'InStock' | 'Backorder' | 'CannotFulfil' | null
+  expecteddate: string | null
+  draftmessage: string | null
+  finalmessage: string | null
+  reviewstatus: 'PendingSend' | 'PendingReview' | 'Approved' | 'Edited' | 'Sent'
+  sentat: string | null
 }
 
 export type PricingCode = {

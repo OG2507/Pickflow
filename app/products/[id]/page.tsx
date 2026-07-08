@@ -669,6 +669,13 @@ export default function ProductDetailPage() {
                   <small>Uses Mode 2 picking with bag calculation</small>
                 </span>
               </label>
+              <label className="pf-checkbox-row">
+                <input type="checkbox" name="enquiryformenabled" checked={form.enquiryformenabled ?? true} onChange={handleChange} />
+                <span>
+                  <strong>Stock Enquiry Button</strong>
+                  <small>Shows "Ask about availability" on this product's page — on by default</small>
+                </span>
+              </label>
             </div>
           </div>
 
