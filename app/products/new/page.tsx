@@ -34,6 +34,7 @@ export default function NewProductPage() {
     isactive: true,
     isdropship: false,
     pickingbintracked: false,
+    enquiryformenabled: true,
     bagsizedefault: '0',
     reorderlevel: '0',
     reorderqty: '0',
@@ -103,6 +104,7 @@ export default function NewProductPage() {
         isactive:              form.isactive,
         isdropship:            form.isdropship,
         pickingbintracked:     form.pickingbintracked,
+        enquiryformenabled:    form.enquiryformenabled,
         bagsizedefault:        parseInt(form.bagsizedefault) || 0,
         reorderlevel:          parseInt(form.reorderlevel) || 0,
         reorderqty:            parseInt(form.reorderqty) || 0,
@@ -331,6 +333,13 @@ export default function NewProductPage() {
               <span>
                 <strong>Picking Bin Tracked</strong>
                 <small>Uses Mode 2 picking with bag calculation</small>
+              </span>
+            </label>
+            <label className="pf-checkbox-row">
+              <input type="checkbox" name="enquiryformenabled" checked={form.enquiryformenabled} onChange={handleChange} />
+              <span>
+                <strong>Stock Enquiry Button</strong>
+                <small>Shows "Ask about availability" on this product's page — on by default</small>
               </span>
             </label>
           </div>
