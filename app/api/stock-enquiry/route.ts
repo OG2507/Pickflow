@@ -22,6 +22,7 @@ const supabase = createClient(
 type EnquiryLineInput = { sku: string; quantity: number }
 
 type LineVerdict = {
+  enquirylineid: number | null
   sku: string
   productname: string | null
   productid: number | null
@@ -80,6 +81,7 @@ export async function POST(request: Request) {
 
       if (!sku || !Number.isFinite(quantityrequested) || quantityrequested <= 0) {
         results.push({
+        enquirylineid: null, // filled in after insert below
           sku: sku || '(missing)',
           productname: null,
           productid: null,
@@ -96,6 +98,7 @@ export async function POST(request: Request) {
 
       if (!product) {
         results.push({
+        enquirylineid: null, // filled in after insert below
           sku,
           productname: null,
           productid: null,
@@ -120,6 +123,7 @@ export async function POST(request: Request) {
 
       if (totalonhand >= quantityrequested) {
         results.push({
+        enquirylineid: null, // filled in after insert below
           sku: product.sku,
           productname: product.productname,
           productid: product.productid,
@@ -127,7 +131,7 @@ export async function POST(request: Request) {
           verdict: 'InStock',
           expecteddate: null,
           needsreview: false,
-          draftmessage: `Good news — we have enough ${product.productname} in stock. Please go ahead and place your order as normal.`,
+          draftmessage: `Thanks for checking. We've got plenty of ${product.productname} in stock right now, so please go ahead and place your order.`,
         })
         continue
       }
@@ -197,6 +201,7 @@ export async function POST(request: Request) {
       if (expecteddate) {
         const formatted = new Date(expecteddate).toLocaleDateString('en-GB')
         results.push({
+        enquirylineid: null, // filled in after insert below
           sku: product.sku,
           productname: product.productname,
           productid: product.productid,
@@ -204,10 +209,11 @@ export async function POST(request: Request) {
           verdict: 'Backorder',
           expecteddate,
           needsreview: true,
-          draftmessage: `Hi, thanks for checking. We don't currently have enough ${product.productname} in stock, but we're expecting more with us by ${formatted}. We're happy to place this on backorder for you if you'd like to go ahead.`,
+          draftmessage: `Thanks for checking. We're out of ${product.productname} right now, but we're expecting more by ${formatted}. Happy to hold this order for you if you'd like to go ahead.`,
         })
       } else {
         results.push({
+        enquirylineid: null, // filled in after insert below
           sku: product.sku,
           productname: product.productname,
           productid: product.productid,
@@ -215,7 +221,7 @@ export async function POST(request: Request) {
           verdict: 'CannotFulfil',
           expecteddate: null,
           needsreview: true,
-          draftmessage: `Hi, thanks for checking. We're not able to confirm a date for more ${product.productname} at the moment — we'll come back to you as soon as we know more.`,
+          draftmessage: `Thanks for checking. We can't put a date on more ${product.productname} just yet, but we'll come back to you as soon as we know more.`,
         })
       }
     }
@@ -243,8 +249,19 @@ export async function POST(request: Request) {
       reviewstatus: r.verdict === 'InStock' ? 'PendingSend' : 'PendingReview',
     }))
 
-    const { error: linesErr } = await supabase.from('tblstockenquirylines').insert(lineInserts)
-    if (linesErr) console.error('Stock enquiry — failed to log lines:', linesErr)
+    const { data: insertedLines, error: linesErr } = await supabase
+      .from('tblstockenquirylines')
+      .insert(lineInserts)
+      .select('enquirylineid')
+
+    if (linesErr) {
+      console.error('Stock enquiry — failed to log lines:', linesErr)
+    } else if (insertedLines) {
+      // Insert preserves array order, so map position-for-position
+      insertedLines.forEach((row, i) => {
+        if (results[i]) results[i].enquirylineid = row.enquirylineid
+      })
+    }
 
     return NextResponse.json({
       enquiryid: enquiry.enquiryid,

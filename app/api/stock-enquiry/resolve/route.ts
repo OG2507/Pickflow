@@ -25,22 +25,30 @@ export async function POST(request: Request) {
 
     const body = await request.json()
     const enquirylineid = Number(body?.enquirylineid)
-    const finalmessage = (body?.finalmessage || '').trim()
+    let finalmessage = (body?.finalmessage || '').trim()
     const status = body?.status === 'Edited' ? 'Edited' : 'Approved'
 
-    if (!enquirylineid || !finalmessage) {
-      return NextResponse.json({ error: 'enquirylineid and finalmessage are required' }, { status: 400 })
+    if (!enquirylineid) {
+      return NextResponse.json({ error: 'enquirylineid is required' }, { status: 400 })
+    }
+    if (status === 'Edited' && !finalmessage) {
+      return NextResponse.json({ error: 'finalmessage is required when status is Edited' }, { status: 400 })
     }
 
     const { data: line, error: lineErr } = await supabase
       .from('tblstockenquirylines')
-      .select('enquirylineid, enquiryid, productid, skurequested')
+      .select('enquirylineid, enquiryid, productid, skurequested, draftmessage')
       .eq('enquirylineid', enquirylineid)
       .maybeSingle()
 
     if (lineErr || !line) {
       console.error('Stock enquiry resolve — line not found:', lineErr)
       return NextResponse.json({ error: 'Enquiry line not found' }, { status: 404 })
+    }
+
+    // Approved with nothing supplied - use the original draft as-is
+    if (status === 'Approved' && !finalmessage) {
+      finalmessage = line.draftmessage || ''
     }
 
     const { data: enquiry, error: enquiryErr } = await supabase
