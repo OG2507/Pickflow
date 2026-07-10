@@ -33,22 +33,51 @@ type LineVerdict = {
   draftmessage: string
 }
 
-async function findProductBySku(sku: string) {
-  const { data: bySku } = await supabase
-    .from('tblproducts')
-    .select('productid, productname, sku, altsku, leadtimedays')
-    .eq('sku', sku)
+async function resolveProduct(websiteSku: string, requestedQty: number) {
+  const columns = 'productid, productname, sku, altsku, leadtimedays, packquantity'
+
+  // Translate the website SKU to the real SKU, same table the order sync
+  // already relies on. Most products need no translation at all - the
+  // mapping table only holds the exceptions - so falling back to the
+  // website SKU as-is (unchanged) covers the normal case.
+  const { data: mapping } = await supabase
+    .from('tblskumapping')
+    .select('realsku')
+    .eq('websitesku', websiteSku)
     .maybeSingle()
 
-  if (bySku) return bySku
+  let realSku = mapping?.realsku || websiteSku
+  let quantity = requestedQty
+
+  // A "-W" suffix means this is a wholesale pack line - the underlying
+  // product is the same without the suffix, but the quantity requested
+  // represents packs, not individual units, so scale it up accordingly.
+  if (realSku.endsWith('-W')) {
+    realSku = realSku.slice(0, -2)
+    const { data: packProduct } = await supabase
+      .from('tblproducts')
+      .select(columns)
+      .eq('sku', realSku)
+      .maybeSingle()
+    quantity = requestedQty * (packProduct?.packquantity || 1)
+    if (packProduct) return { product: packProduct, quantity }
+  }
+
+  const { data: bySku } = await supabase
+    .from('tblproducts')
+    .select(columns)
+    .eq('sku', realSku)
+    .maybeSingle()
+
+  if (bySku) return { product: bySku, quantity }
 
   const { data: byAltSku } = await supabase
     .from('tblproducts')
-    .select('productid, productname, sku, altsku, leadtimedays')
-    .eq('altsku', sku)
+    .select(columns)
+    .eq('altsku', realSku)
     .maybeSingle()
 
-  return byAltSku || null
+  return { product: byAltSku || null, quantity }
 }
 
 export async function POST(request: Request) {
@@ -61,6 +90,7 @@ export async function POST(request: Request) {
     const body = await request.json()
     const customeremail = (body?.customeremail || '').trim()
     const customername = (body?.customername || '').trim() || null
+    const greeting = customername ? `Hi ${customername}, thanks` : 'Thanks'
     const lines: EnquiryLineInput[] = Array.isArray(body?.lines) ? body.lines : []
 
     if (!customeremail || !customeremail.includes('@')) {
@@ -94,7 +124,7 @@ export async function POST(request: Request) {
         continue
       }
 
-      const product = await findProductBySku(sku)
+      const { product, quantity: checkquantity } = await resolveProduct(sku, quantityrequested)
 
       if (!product) {
         results.push({
@@ -121,7 +151,7 @@ export async function POST(request: Request) {
         (sum: number, r: any) => sum + (r.quantityonhand || 0), 0
       )
 
-      if (totalonhand >= quantityrequested) {
+      if (totalonhand >= checkquantity) {
         results.push({
         enquirylineid: null, // filled in after insert below
           sku: product.sku,
@@ -131,13 +161,13 @@ export async function POST(request: Request) {
           verdict: 'InStock',
           expecteddate: null,
           needsreview: false,
-          draftmessage: `Thanks for checking. We've got plenty of ${product.productname} in stock right now, so please go ahead and place your order.`,
+          draftmessage: `${greeting} for checking. We've got plenty of ${product.productname} in stock right now, so please go ahead and place your order.\n\nThanks,\nJKs Bargains`,
         })
         continue
       }
 
       // Short — check outstanding purchase order lines for this product
-      const shortfall = quantityrequested - totalonhand
+      const shortfall = checkquantity - totalonhand
 
       const { data: poLines } = await supabase
         .from('tblpurchaseorderlines')
@@ -198,8 +228,10 @@ export async function POST(request: Request) {
         }
       }
 
+      const availableNow = totalonhand > 0 ? totalonhand : 0
+      const situation = `We've currently got ${availableNow} of ${product.productname} in stock. If you'd like to order now, we can supply ${availableNow} straight away — anything beyond that would go on backorder once you place your order.`
+
       if (expecteddate) {
-        const formatted = new Date(expecteddate).toLocaleDateString('en-GB')
         results.push({
         enquirylineid: null, // filled in after insert below
           sku: product.sku,
@@ -209,7 +241,7 @@ export async function POST(request: Request) {
           verdict: 'Backorder',
           expecteddate,
           needsreview: true,
-          draftmessage: `Thanks for checking. We're out of ${product.productname} right now, but we're expecting more by ${formatted}. Happy to hold this order for you if you'd like to go ahead.`,
+          draftmessage: `${greeting} for checking. ${situation}\n\nThanks,\nJKs Bargains`,
         })
       } else {
         results.push({
@@ -221,7 +253,7 @@ export async function POST(request: Request) {
           verdict: 'CannotFulfil',
           expecteddate: null,
           needsreview: true,
-          draftmessage: `Thanks for checking. We can't put a date on more ${product.productname} just yet, but we'll come back to you as soon as we know more.`,
+          draftmessage: `${greeting} for checking. ${situation}\n\nThanks,\nJKs Bargains`,
         })
       }
     }

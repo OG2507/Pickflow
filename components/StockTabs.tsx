@@ -10,6 +10,7 @@ const TABS = [
   { label: 'Stock Check',  href: '/stock/check' },
   { label: 'Bulk Check',   href: '/stock/bulkcheck' },
   { label: 'Cycle Count',  href: '/stock/cyclecount' },
+  { label: 'Enquiries',    href: '/stock/enquiries' },
 ]
 
 export default function StockTabs() {
