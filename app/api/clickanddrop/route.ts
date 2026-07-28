@@ -145,7 +145,13 @@ export async function POST(request: Request) {
     // Strip undefined values — API rejects undefined on optional fields
     const cleanPayload = JSON.parse(JSON.stringify(cadPayload))
 
-    console.log('[C&D] Sending payload:', JSON.stringify(cleanPayload, null, 2))
+    // Log a non-PII summary only — never the recipient name/address/phone/email.
+    console.log('[C&D] Sending order:', {
+      orderReference: cleanPayload.orderReference,
+      serviceCode,
+      countryCode,
+      weightInGrams: cleanPayload.packages?.[0]?.weightInGrams,
+    })
 
     const cadRes = await fetch(`${CAD_BASE}/orders`, {
       method: 'POST',
@@ -158,9 +164,11 @@ export async function POST(request: Request) {
     })
 
     const responseText = await cadRes.text()
-    console.log(`[C&D] Response ${cadRes.status}:`, responseText)
 
     if (!cadRes.ok) {
+      // Only log the raw body on failure — it's what you need to debug a 400,
+      // and it keeps success responses (which echo recipient details) out of logs.
+      console.error(`[C&D] Error ${cadRes.status}:`, responseText)
       return NextResponse.json({
         success: false,
         error:   `Click and Drop error: ${cadRes.status} — ${responseText}`,

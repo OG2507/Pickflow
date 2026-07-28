@@ -8,8 +8,32 @@ const supabase = createClient(
 
 const WEBSITE_SOURCES = ['Shopwired', 'eBay']
 
-export async function GET() {
+// POST only. Body:
+//   { action: 'export' }         → build the CSV and stamp quickfileexportedat
+//   anything else (the default)  → return the pending count only, no mutation
+//
+// The export path marks orders as exported, so it must never be reachable on a
+// GET: a prefetch/crawler on a GET URL would silently stamp orders and drop
+// them out of the pending list, so their invoices would never get exported.
+// Keeping the mutation on POST closes that.
+export async function POST(request: Request) {
   try {
+    const body = await request.json().catch(() => ({} as any))
+    const action = body?.action
+
+    // ── Count-only preview (no mutation) ─────────────────────────
+    if (action !== 'export') {
+      const { count } = await supabase
+        .from('tblorders')
+        .select('orderid', { count: 'exact', head: true })
+        .in('status', ['Dispatched', 'Invoiced', 'Completed'])
+        .not('ordersource', 'in', `("Shopwired","eBay")`)
+        .is('quickfileexportedat', null)
+
+      return NextResponse.json({ count: count || 0 })
+    }
+
+    // ── Export: build CSV, then stamp ────────────────────────────
     // Fetch all unexported dispatched/invoiced/completed wholesale orders
     const { data: orders, error: ordersErr } = await supabase
       .from('tblorders')
@@ -185,22 +209,6 @@ export async function GET() {
       },
     })
 
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
-}
-
-// Returns count of pending orders without triggering export
-export async function POST() {
-  try {
-    const { count } = await supabase
-      .from('tblorders')
-      .select('orderid', { count: 'exact', head: true })
-      .in('status', ['Dispatched', 'Invoiced', 'Completed'])
-      .not('ordersource', 'in', `("Shopwired","eBay")`)
-      .is('quickfileexportedat', null)
-
-    return NextResponse.json({ count: count || 0 })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

@@ -12,7 +12,12 @@
       "WebFetch(domain:www.webuyanybusiness.co.uk)",
       "WebFetch(domain:www.logros.co.uk)",
       "WebFetch(domain:www.cpil.co.uk)",
-      "WebFetch(domain:www.epiris.co.uk)"
+      "WebFetch(domain:www.epiris.co.uk)",
+      "Bash(xargs wc -l)",
+      "Bash(diff app/orders/\\\\[id\\\\]/page.tsx app/orders/\\\\[id\\\\]/orders-id-page.tsx)",
+      "Read(//tmp/**)",
+      "mcp__1c5f548a-a71f-4288-b2b1-db317731ff47__get_advisors",
+      "mcp__1c5f548a-a71f-4288-b2b1-db317731ff47__list_tables"
     ]
   }
 }

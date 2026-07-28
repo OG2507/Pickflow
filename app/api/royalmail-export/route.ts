@@ -8,11 +8,35 @@ const supabase = createClient(
 
 const WEBSITE_SOURCES = ['Shopwired', 'eBay']
 
-export async function GET(request: Request) {
+// POST only. Body:
+//   { action: 'export', orderid?: number }  → build the CSV and stamp
+//                                              royalmailexportedat on the orders
+//   anything else (the default)             → return the pending count only,
+//                                              with no mutation
+//
+// The export path marks orders as exported, so it must never be reachable on a
+// GET: a browser prefetch, crawler, or <img src> pointing at a GET URL would
+// silently stamp orders and drop them out of the pending list (labels then
+// never get printed). Keeping the mutation on POST closes that.
+export async function POST(request: Request) {
   try {
-    const { searchParams } = new URL(request.url)
-    const singleOrderId = searchParams.get('orderid')
+    const body = await request.json().catch(() => ({} as any))
+    const action = body?.action
+    const singleOrderId = body?.orderid ? String(body.orderid) : null
 
+    // ── Count-only preview (no mutation) ─────────────────────────
+    if (action !== 'export') {
+      const { count } = await supabase
+        .from('tblorders')
+        .select('orderid', { count: 'exact', head: true })
+        .eq('status', 'Printed')
+        .not('ordersource', 'in', `("Shopwired","eBay")`)
+        .is('royalmailexportedat', null)
+
+      return NextResponse.json({ count: count || 0 })
+    }
+
+    // ── Export: build CSV, then stamp ────────────────────────────
     let query = supabase
       .from('tblorders')
       .select(`
@@ -140,22 +164,6 @@ export async function GET(request: Request) {
       },
     })
 
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
-}
-
-// Returns count of pending orders
-export async function POST() {
-  try {
-    const { count } = await supabase
-      .from('tblorders')
-      .select('orderid', { count: 'exact', head: true })
-      .eq('status', 'Printed')
-      .not('ordersource', 'in', `("Shopwired","eBay")`)
-      .is('royalmailexportedat', null)
-
-    return NextResponse.json({ count: count || 0 })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

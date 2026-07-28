@@ -157,9 +157,10 @@ export async function POST(request: Request) {
     })
 
     const responseText = await cadRes.text()
-    console.log(`[C&D Bulk] Response ${cadRes.status}:`, responseText)
 
     if (!cadRes.ok) {
+      // Only log the raw body on failure — it can echo recipient details.
+      console.error(`[C&D Bulk] Error ${cadRes.status}:`, responseText)
       return NextResponse.json({
         success: false,
         error:   `Click and Drop error: ${cadRes.status} — ${responseText}`,

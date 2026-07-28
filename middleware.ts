@@ -5,20 +5,27 @@ import type { NextRequest } from 'next/server'
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Allow login page through
+  // Login page is always reachable
   if (pathname === '/login') {
     return NextResponse.next()
   }
 
-  // Allow API routes and static files through
-  if (
-    pathname.startsWith('/api/') ||
-    pathname.startsWith('/_next/') ||
-    pathname.includes('.')
-  ) {
+  // Next.js internals and static assets (anything with a file extension)
+  if (pathname.startsWith('/_next/') || pathname.includes('.')) {
     return NextResponse.next()
   }
 
+  // Server-to-server routes authenticate themselves with a shared secret
+  // (called by n8n, never the browser) so they carry no session cookie.
+  // Let them reach their own handlers, which enforce the x-stock-api-key check.
+  if (pathname.startsWith('/api/stock-enquiry')) {
+    return NextResponse.next()
+  }
+
+  // Everything else — all pages AND all remaining /api/* routes — requires a
+  // logged-in session. Those API routes run with the service-role key (which
+  // bypasses RLS), so this middleware is their only access gate: without this,
+  // any anonymous caller could hit e.g. /api/admin/create-user.
   let response = NextResponse.next({
     request: { headers: request.headers },
   })
@@ -44,9 +51,16 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { session } } = await supabase.auth.getSession()
+  // getUser() revalidates the token against the Auth server; getSession() only
+  // decodes the cookie locally. This gate fronts RLS-bypassing routes, so use
+  // the stronger check.
+  const { data: { user } } = await supabase.auth.getUser()
 
-  if (!session) {
+  if (!user) {
+    // For API routes, answer with a JSON 401 rather than an HTML redirect.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     return NextResponse.redirect(new URL('/login', request.url))
   }
 

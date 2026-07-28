@@ -377,7 +377,11 @@ export default function OrdersPage() {
     if (!pendingRMCount) return
     setExportingRM(true)
     try {
-      const res = await fetch('/api/royalmail-export')
+      const res = await fetch('/api/royalmail-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'export' }),
+      })
       if (!res.ok) {
         const data = await res.json()
         setSyncResult(`Royal Mail export failed: ${data.error}`)
@@ -404,7 +408,11 @@ export default function OrdersPage() {
     if (!pendingQFCount) return
     setExporting(true)
     try {
-      const res = await fetch('/api/quickfile-bulk-export')
+      const res = await fetch('/api/quickfile-bulk-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'export' }),
+      })
       if (!res.ok) {
         const data = await res.json()
         setSyncResult(`QuickFile export failed: ${data.error}`)

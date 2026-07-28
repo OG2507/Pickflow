@@ -626,6 +626,7 @@ export default function OrderDetailPage() {
     quantityordered: number
     quantityAvailable: number
     shortfall: number
+    despatchNow: number
     decision: 'backorder' | 'cancel'
   }
   const [showBackorderModal, setShowBackorderModal] = useState(false)
@@ -663,7 +664,11 @@ export default function OrderDetailPage() {
 
   // ── Print Order ────────────────────────────────────────────────
   const exportToRoyalMail = async () => {
-    const res = await fetch(`/api/royalmail-export?orderid=${order!.orderid}`)
+    const res = await fetch('/api/royalmail-export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'export', orderid: order!.orderid }),
+    })
     if (!res.ok) {
       const data = await res.json()
       setError(`Royal Mail export failed: ${data.error}`)
@@ -1488,9 +1493,15 @@ export default function OrderDetailPage() {
     setShowBackorderModal(false)
     const decisions = new Map<number, { backorder: number; cancel: number }>()
     for (const s of shortfallLines) {
+      // "Despatch now" is what physically ships today. Clamp it to what's
+      // actually on hand so we can never pick/deduct more than we hold.
+      // Everything not despatched is either backordered or cancelled — the
+      // system no longer assumes on-hand stock has left the building.
+      const despatch = Math.max(0, Math.min(s.despatchNow, s.quantityAvailable))
+      const remainder = s.quantityordered - despatch
       decisions.set(s.orderlineid, {
-        backorder: s.decision === 'backorder' ? s.shortfall : 0,
-        cancel:    s.decision === 'cancel'    ? s.shortfall : 0,
+        backorder: s.decision === 'backorder' ? remainder : 0,
+        cancel:    s.decision === 'cancel'    ? remainder : 0,
       })
     }
 
@@ -1536,6 +1547,7 @@ export default function OrderDetailPage() {
           quantityordered:   line.quantityordered,
           quantityAvailable: available,
           shortfall:         line.quantityordered - available,
+          despatchNow:       0, // default to sending nothing — staff type what actually ships
           decision:          'backorder', // default to backorder
         })
       }
@@ -2409,8 +2421,10 @@ export default function OrderDetailPage() {
               Stock Shortfall — Backorder Decision
             </h2>
             <p style={{ margin: '0 0 20px 0', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-              The following lines have insufficient stock. Choose what to do with each shortfall.
-              What you can despatch today will ship now. Backorders will be created as a separate order on Tracked 48.
+              The following lines have insufficient stock. Enter how many you are actually despatching
+              today in <strong>Despatch now</strong> (leave at 0 to send nothing). Only that quantity is
+              deducted from stock. Everything else on the line is backordered or cancelled — backorders
+              are created as a separate order on Tracked 48.
             </p>
 
             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '24px', fontSize: '0.875rem' }}>
@@ -2419,9 +2433,9 @@ export default function OrderDetailPage() {
                   <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>SKU</th>
                   <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Product</th>
                   <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Ordered</th>
-                  <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Available</th>
-                  <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Short</th>
-                  <th style={{ textAlign: 'center', padding: '6px 8px', color: 'var(--text-muted)' }}>Action</th>
+                  <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>In stock</th>
+                  <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Despatch now</th>
+                  <th style={{ textAlign: 'center', padding: '6px 8px', color: 'var(--text-muted)' }}>Remainder</th>
                 </tr>
               </thead>
               <tbody>
@@ -2431,32 +2445,54 @@ export default function OrderDetailPage() {
                     <td style={{ padding: '8px' }}>{s.productname || '—'}</td>
                     <td style={{ padding: '8px', textAlign: 'right' }}>{s.quantityordered}</td>
                     <td style={{ padding: '8px', textAlign: 'right', color: 'var(--pf-success, #16a34a)' }}>{s.quantityAvailable}</td>
-                    <td style={{ padding: '8px', textAlign: 'right', color: 'var(--pf-danger, #dc2626)', fontWeight: 600 }}>{s.shortfall}</td>
+                    <td style={{ padding: '8px', textAlign: 'right' }}>
+                      <input
+                        type="number"
+                        className="pf-input"
+                        min={0}
+                        max={s.quantityAvailable}
+                        value={s.despatchNow}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const raw = parseInt(e.target.value, 10)
+                          const val = isNaN(raw) ? 0 : Math.max(0, Math.min(raw, s.quantityAvailable))
+                          setShortfallLines((prev) =>
+                            prev.map((x) => x.orderlineid === s.orderlineid ? { ...x, despatchNow: val } : x)
+                          )
+                        }}
+                        style={{ width: '70px', textAlign: 'right', padding: '4px 6px' }}
+                      />
+                    </td>
                     <td style={{ padding: '8px', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: '16px', justifyContent: 'center' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.875rem' }}>
-                          <input
-                            type="radio"
-                            name={`bo-decision-${s.orderlineid}`}
-                            checked={s.decision === 'backorder'}
-                            onChange={() => setShortfallLines((prev) =>
-                              prev.map((x) => x.orderlineid === s.orderlineid ? { ...x, decision: 'backorder' } : x)
-                            )}
-                          />
-                          Backorder
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.875rem' }}>
-                          <input
-                            type="radio"
-                            name={`bo-decision-${s.orderlineid}`}
-                            checked={s.decision === 'cancel'}
-                            onChange={() => setShortfallLines((prev) =>
-                              prev.map((x) => x.orderlineid === s.orderlineid ? { ...x, decision: 'cancel' } : x)
-                            )}
-                          />
-                          Cancel shortfall
-                        </label>
-                      </div>
+                      {(() => {
+                        const remainder = s.quantityordered - s.despatchNow
+                        return (
+                          <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', alignItems: 'center' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.875rem' }}>
+                              <input
+                                type="radio"
+                                name={`bo-decision-${s.orderlineid}`}
+                                checked={s.decision === 'backorder'}
+                                onChange={() => setShortfallLines((prev) =>
+                                  prev.map((x) => x.orderlineid === s.orderlineid ? { ...x, decision: 'backorder' } : x)
+                                )}
+                              />
+                              Backorder {remainder}
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.875rem' }}>
+                              <input
+                                type="radio"
+                                name={`bo-decision-${s.orderlineid}`}
+                                checked={s.decision === 'cancel'}
+                                onChange={() => setShortfallLines((prev) =>
+                                  prev.map((x) => x.orderlineid === s.orderlineid ? { ...x, decision: 'cancel' } : x)
+                                )}
+                              />
+                              Cancel {remainder}
+                            </label>
+                          </div>
+                        )
+                      })()}
                     </td>
                   </tr>
                 ))}
