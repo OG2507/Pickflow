@@ -2,7 +2,12 @@
 
 import { useRouter } from 'next/navigation'
 
-const ADMIN_SECTIONS = [
+const ADMIN_SECTIONS: {
+  title: string
+  description: string
+  href: string
+  comingSoon?: boolean
+}[] = [
   {
     title: 'Price Bands',
     description: 'Manage retail, wholesale, and reduced wholesale prices by band code.',

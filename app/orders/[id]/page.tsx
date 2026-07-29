@@ -1003,7 +1003,7 @@ export default function OrderDetailPage() {
       order.shiptocountry,
     ].filter(Boolean).join('<br>')
 
-    const packingRows = [...lines].sort((a, b) => a.sku.localeCompare(b.sku)).map((line) =>`
+    const packingRows = [...lines].sort((a, b) => (a.sku || '').localeCompare(b.sku || '')).map((line) =>`
       <tr>
         <td>${line.sku}</td>
         <td>${line.productname}</td>
