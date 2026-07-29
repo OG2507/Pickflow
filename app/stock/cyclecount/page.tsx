@@ -172,7 +172,7 @@ export default function CycleCountPage() {
     setCountState(null)
 
     // Fire all database writes in parallel in the background
-    const writes: Promise<any>[] = [
+    const writes: PromiseLike<any>[] = [
       supabase
         .from('tblstocklevels')
         .update({ lastchecked: now, lastcheckedby: 'Cycle count' })

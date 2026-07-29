@@ -17,6 +17,7 @@ export type Product = {
   reducedwholesaleprice: number   // overrides price band if set
   costprice: number | null        // landed cost — for margin tracking when ready
   pricingcode: string | null      // reference to tblpricingcodes.pricingcode
+  pricingcodeid: number | null    // FK to tblpricingcodes.pricingcodeid
   vatstatus: 'Standard' | 'Zero' | 'Exempt'
   weight: number | null           // grams
   width: number | null
@@ -27,6 +28,8 @@ export type Product = {
   leadtimedays: number
   isactive: boolean
   isdropship: boolean
+  isbundle: boolean
+  isdiscontinued: boolean
   pickingbintracked: boolean
   bagsizedefault: number
   binmaxqty: number
@@ -129,6 +132,7 @@ export type Supplier = {
 export type Client = {
   clientid: number
   clientcode: string | null
+  accountreference: string | null   // QuickFile account reference (required for QF export)
   companyname: string | null
   firstname: string | null
   lastname: string | null

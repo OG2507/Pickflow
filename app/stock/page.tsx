@@ -1,9 +1,12 @@
 'use client'
 
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import StockTabs from '@/components/StockTabs'
+
+// useSearchParams forces client rendering — opt out of static prerender to avoid build-time CSR bailout
+export const dynamic = 'force-dynamic'
 
 type StockByProduct = {
   productid: number
@@ -56,6 +59,14 @@ const MOVEMENT_REASONS = [
 ]
 
 export default function StockPage() {
+  return (
+    <Suspense fallback={<div className="pf-loading">Loading…</div>}>
+      <StockPageInner />
+    </Suspense>
+  )
+}
+
+function StockPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const productParam = searchParams.get('product')

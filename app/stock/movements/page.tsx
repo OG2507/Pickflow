@@ -1,9 +1,12 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import StockTabs from '@/components/StockTabs'
+
+// useSearchParams forces client rendering — opt out of static prerender to avoid build-time CSR bailout
+export const dynamic = 'force-dynamic'
 
 type Movement = {
   movementid: number
@@ -30,6 +33,14 @@ const TYPE_COLOURS: Record<string, string> = {
 }
 
 export default function StockMovementsPage() {
+  return (
+    <Suspense fallback={<div className="pf-loading">Loading…</div>}>
+      <StockMovementsPageInner />
+    </Suspense>
+  )
+}
+
+function StockMovementsPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const productidParam = searchParams.get('productid')
