@@ -48,11 +48,11 @@ export function wholesaleStockPosition(packs: number, discontinued: boolean): st
   if (discontinued) {
     if (packs === 1)   return 'Just the last pack'
     if (packs <= 4)    return "Less than 5 packs - once they're gone, they're gone"
-    if (packs <= 9)    return "Less than 10 packs - once they're gone, they're gone"
+    if (packs <= 9)    return "Between 5 and 10 packs available - once they're gone, they're gone"
     return 'More than 10 packs available'
   }
   if (packs === 1)     return 'Last pack, but more on the way'
   if (packs <= 4)      return 'Less than 5 packs - more on the way'
-  if (packs <= 9)      return 'Less than 10 packs - more on the way'
+  if (packs <= 9)      return 'Between 5 and 10 packs available - more on the way'
   return 'More than 10 packs available'
 }
