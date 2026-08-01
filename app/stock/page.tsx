@@ -447,6 +447,40 @@ function StockPageInner() {
     setExpandedId(expandedId === id ? null : id)
   }
 
+  // Download the Shopwired stock-position CSV (Item ID + Custom Field - stock_position).
+  // sample=true returns just the first few listings for a safe test upload.
+  const [exportingSP, setExportingSP] = useState(false)
+  const downloadStockPositionCsv = async (sample: boolean) => {
+    setExportingSP(true)
+    try {
+      const res = await fetch('/api/shopwired-stock-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sample }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        console.error('[stock-position export] failed:', data)
+        alert(`Stock-position export failed: ${data.error || res.status}`)
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = sample ? 'stock-position-sample.csv' : 'stock-position.csv'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      console.error('[stock-position export] error:', err)
+      alert(`Stock-position export failed: ${err.message}`)
+    } finally {
+      setExportingSP(false)
+    }
+  }
+
   return (
     <div className="pf-page">
       <div className="pf-page-header">
@@ -476,6 +510,22 @@ function StockPageInner() {
             onClick={() => router.push('/stock/reorder')}
           >
             Reorder
+          </button>
+          <button
+            className="pf-btn-secondary"
+            onClick={() => downloadStockPositionCsv(false)}
+            disabled={exportingSP}
+            title="Download the CSV to upload to Shopwired (updates the stock_position field only)"
+          >
+            {exportingSP ? 'Building…' : 'Shopwired Stock CSV'}
+          </button>
+          <button
+            className="pf-btn-secondary"
+            onClick={() => downloadStockPositionCsv(true)}
+            disabled={exportingSP}
+            title="First few listings only — for a safe test upload before the full run"
+          >
+            Sample
           </button>
           <div className="pf-toggle-group">
           <button
