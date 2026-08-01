@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     // Active products that have at least one Shopwired listing id.
     const { data: products, error: prodErr } = await supabase
       .from('tblproducts')
-      .select('productid, packquantity, isdiscontinued, shopwiredretailid, shopwiredwholesaleid')
+      .select('productid, sku, productname, packquantity, isdiscontinued, shopwiredretailid, shopwiredwholesaleid')
       .eq('isactive', true)
       .range(0, 9999)
 
@@ -56,22 +56,26 @@ export async function POST(request: Request) {
     )
     const list = sample ? listed.slice(0, 3) : listed
 
-    const rows: string[][] = [['Item ID', 'Custom Field - stock_position']]
+    // "Reference (not imported)" is a human-readable check column — Shopwired
+    // matches columns by header name and ignores this one, so it never touches
+    // any product data. It's only there so the CSV is searchable by name/B-code.
+    const rows: string[][] = [['Item ID', 'Reference (not imported)', 'Custom Field - stock_position']]
 
     for (const p of list as any[]) {
       const units = onHand.get(p.productid) || 0
       const discontinued = !!p.isdiscontinued
+      const label = `${p.productname || ''} [${p.sku || ''}]`
 
       const retailId = (p.shopwiredretailid || '').trim()
       if (retailId) {
-        rows.push([retailId, retailStockPosition(units, discontinued)])
+        rows.push([retailId, `${label} (Retail)`, retailStockPosition(units, discontinued)])
       }
 
       const wholesaleId = (p.shopwiredwholesaleid || '').trim()
       if (wholesaleId) {
         const packSize = p.packquantity && p.packquantity > 1 ? p.packquantity : 1
         const packs = Math.floor(units / packSize)
-        rows.push([wholesaleId, wholesaleStockPosition(packs, discontinued)])
+        rows.push([wholesaleId, `${label} (Wholesale)`, wholesaleStockPosition(packs, discontinued)])
       }
     }
 
