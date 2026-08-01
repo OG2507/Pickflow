@@ -59,7 +59,10 @@ export async function POST(request: Request) {
     // "Reference (not imported)" is a human-readable check column — Shopwired
     // matches columns by header name and ignores this one, so it never touches
     // any product data. It's only there so the CSV is searchable by name/B-code.
-    const rows: string[][] = [['Item ID', 'Reference (not imported)', 'Custom Field - stock_position']]
+    // "Opening Stock" carries the actual quantity — retail in units, wholesale in
+    // whole packs. It updates the live stock level, which is what other systems
+    // (eBay via Shopwired, back-order logic) read. "Reference" is ignored on import.
+    const rows: string[][] = [['Item ID', 'Reference (not imported)', 'Opening Stock', 'Custom Field - stock_position']]
 
     for (const p of list as any[]) {
       const units = onHand.get(p.productid) || 0
@@ -68,14 +71,14 @@ export async function POST(request: Request) {
 
       const retailId = (p.shopwiredretailid || '').trim()
       if (retailId) {
-        rows.push([retailId, `${label} (Retail)`, retailStockPosition(units, discontinued)])
+        rows.push([retailId, `${label} (Retail)`, String(units), retailStockPosition(units, discontinued)])
       }
 
       const wholesaleId = (p.shopwiredwholesaleid || '').trim()
       if (wholesaleId) {
         const packSize = p.packquantity && p.packquantity > 1 ? p.packquantity : 1
         const packs = Math.floor(units / packSize)
-        rows.push([wholesaleId, `${label} (Wholesale)`, wholesaleStockPosition(packs, discontinued)])
+        rows.push([wholesaleId, `${label} (Wholesale)`, String(packs), wholesaleStockPosition(packs, discontinued)])
       }
     }
 
