@@ -15,10 +15,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Server-to-server routes authenticate themselves with a shared secret
-  // (called by n8n, never the browser) so they carry no session cookie.
-  // Let them reach their own handlers, which enforce the x-stock-api-key check.
-  if (pathname.startsWith('/api/stock-enquiry')) {
+  // Server-to-server routes authenticate themselves with shared-secret
+  // headers, so they do not carry an interactive Pickflow session cookie.
+  if (
+    pathname.startsWith('/api/stock-enquiry') ||
+    pathname.startsWith('/api/commerce84/')
+  ) {
     return NextResponse.next()
   }
 
@@ -57,7 +59,6 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {
-    // For API routes, answer with a JSON 401 rather than an HTML redirect.
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
