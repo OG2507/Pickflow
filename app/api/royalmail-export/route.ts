@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { bandWeightGrams } from '@/lib/royalmailWeight'
+import { bandWeightGrams, getBandWeights } from '@/lib/royalmailWeight'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -89,6 +89,9 @@ export async function POST(request: Request) {
     const exportedAt = new Date().toISOString()
     const orderIds: number[] = []
 
+    // Admin-configured Royal Mail band weights (falls back to shipped defaults).
+    const bandWeights = await getBandWeights(supabase)
+
     for (const order of orders) {
       const client = order.tblclients as any
 
@@ -121,7 +124,7 @@ export async function POST(request: Request) {
       const packageSize = rate?.packagesize || ''
       // Declare the top-of-band weight for capped formats so an under-declared
       // weight can't get the parcel rejected (same price across the band).
-      const cappedGrams = bandWeightGrams(packageSize) ?? (order.totalweightg || 0)
+      const cappedGrams = bandWeightGrams(packageSize, bandWeights) ?? (order.totalweightg || 0)
       const weightKg    = (cappedGrams / 1000).toFixed(3)
 
       rows.push([
