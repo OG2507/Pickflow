@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { bandWeightGrams, getBandWeights } from '@/lib/royalmailWeight'
+import { declaredWeightGrams } from '@/lib/royalmailWeight'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
 
     const { data: shippingRates } = await supabase
       .from('tblshippingrates')
-      .select('methodname, servicecode, packagesize')
+      .select('methodname, servicecode, packagesize, maxweightg')
 
     const methodMapLookup = new Map<string, string>(
       (methodMaps || []).map((m: any) => [m.swmethodname, m.servicecode])
@@ -65,9 +65,6 @@ export async function POST(request: Request) {
     const cadItems: any[] = []
     const validOrders: typeof orders = []
 
-    // Admin-configured Royal Mail band weights (falls back to shipped defaults).
-    const bandWeights = await getBandWeights(supabase)
-
     for (const order of orders) {
       // Skip eBay
       if (order.isebay) {
@@ -78,6 +75,7 @@ export async function POST(request: Request) {
       // ── Resolve service code + package format ────────────────
       let serviceCode   = 'TOLP48' // default Tracked 48
       let packageFormat = 'parcel'
+      let declaredMaxG: number | null = null // top of this rate's weight band (Admin → Shipping Rates)
 
       if (order.shippingmethod) {
         const mappedCode = methodMapLookup.get(order.shippingmethod)
@@ -85,10 +83,12 @@ export async function POST(request: Request) {
           serviceCode = mappedCode
           const rate = ratesLookup.get(order.shippingmethod)
           if (rate?.packagesize) packageFormat = mapPackageFormat(rate.packagesize)
+          if (rate) declaredMaxG = rate.maxweightg ?? null
         } else {
           const rate = ratesLookup.get(order.shippingmethod) as any
           if (rate?.servicecode) serviceCode = rate.servicecode
           if (rate?.packagesize) packageFormat = mapPackageFormat(rate.packagesize)
+          if (rate) declaredMaxG = rate.maxweightg ?? null
           if (rate && !rate.servicecode) {
             results.push({ orderid: order.orderid, success: false, error: 'No Royal Mail service code for this shipping method' })
             continue
@@ -128,9 +128,10 @@ export async function POST(request: Request) {
         },
         packages: [
           {
-            // Declare the top-of-band weight for capped formats so an under-declared
+            // Declare the top of this rate's weight band so an under-declared
             // weight can't get the parcel rejected (same price across the band).
-            weightInGrams:           Math.max(bandWeightGrams(packageFormat, bandWeights) ?? (order.totalweightg || 100), 1),
+            // The band maximum is editable per rate in Admin → Shipping Rates.
+            weightInGrams:           Math.max(declaredWeightGrams(declaredMaxG, order.totalweightg || 100), 1),
             packageFormatIdentifier: packageFormat,
           },
         ],

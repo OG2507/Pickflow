@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { bandWeightGrams, getBandWeights } from '@/lib/royalmailWeight'
+import { declaredWeightGrams } from '@/lib/royalmailWeight'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -52,6 +52,7 @@ export async function POST(request: Request) {
       return map[size.toLowerCase()] || 'parcel'
     }
     let packageFormat = 'parcel' // default
+    let declaredMaxG: number | null = null // top of this rate's weight band (Admin → Shipping Rates)
 
     // ── Service code lookup ──────────────────────────────────────
     let serviceCode = 'TOLP48' // default — Tracked 48
@@ -67,16 +68,17 @@ export async function POST(request: Request) {
         // Also fetch packagesize from tblshippingrates for this method name
         const { data: rateForFormat } = await supabase
           .from('tblshippingrates')
-          .select('packagesize')
+          .select('packagesize, maxweightg')
           .eq('methodname', order.shippingmethod)
           .maybeSingle()
         if (rateForFormat?.packagesize) {
           packageFormat = mapPackageFormat(rateForFormat.packagesize)
         }
+        if (rateForFormat) declaredMaxG = rateForFormat.maxweightg ?? null
       } else {
         const { data: rate } = await supabase
           .from('tblshippingrates')
-          .select('servicecode, packagesize')
+          .select('servicecode, packagesize, maxweightg')
           .eq('methodname', order.shippingmethod)
           .maybeSingle()
 
@@ -86,6 +88,7 @@ export async function POST(request: Request) {
         if (rate?.packagesize) {
           packageFormat = mapPackageFormat(rate.packagesize)
         }
+        if (rate) declaredMaxG = rate.maxweightg ?? null
         if (rate && !rate.servicecode) {
           return NextResponse.json({
             success: false,
@@ -106,9 +109,6 @@ export async function POST(request: Request) {
     const countryCode = (order.shiptocountry && order.shiptocountry.length === 2)
       ? order.shiptocountry.toUpperCase()
       : 'GB'
-
-    // Admin-configured Royal Mail band weights (falls back to shipped defaults).
-    const bandWeights = await getBandWeights(supabase)
 
     // ── Build payload per API spec ───────────────────────────────
     // recipient.address is a nested object; phoneNumber/emailAddress are on recipient directly
@@ -135,9 +135,10 @@ export async function POST(request: Request) {
       },
       packages: [
         {
-          // Declare the top-of-band weight for capped formats so an under-declared
+          // Declare the top of this rate's weight band so an under-declared
           // weight can't get the parcel rejected (same price across the band).
-          weightInGrams:           Math.max(bandWeightGrams(packageFormat, bandWeights) ?? (order.totalweightg || 100), 1),
+          // The band maximum is editable per rate in Admin → Shipping Rates.
+          weightInGrams:           Math.max(declaredWeightGrams(declaredMaxG, order.totalweightg || 100), 1),
           packageFormatIdentifier: packageFormat,
         },
       ],

@@ -27,13 +27,7 @@ const LABELS: Record<string, string> = {
   PONumberPrefix:        'PO Number Prefix',
   ClientCodePrefix:      'Client Code Prefix',
   OrderSources:          'Order Sources',
-  RMWeightLargeLetter:   'Large Letter weight (g)',
-  RMWeightSmallParcel:   'Small Parcel weight (g)',
-  RMWeightMediumParcel:  'Medium Parcel weight (g)',
 }
-
-// The Royal Mail band-weight keys, in the order they appear on the card.
-const RM_WEIGHT_KEYS = ['RMWeightLargeLetter', 'RMWeightSmallParcel', 'RMWeightMediumParcel']
 
 const MULTILINE_KEYS = ['CompanyAddress']
 const READONLY_KEYS: string[] = []
@@ -215,42 +209,6 @@ export default function AppSettingsPage() {
                 />
               </div>
             ))}
-        </div>
-
-        <div className="pf-card">
-          <h2 className="pf-card-title">Royal Mail Label Weights</h2>
-          <p className="pf-card-note" style={{ marginBottom: 16 }}>
-            The weight (in grams) PickFlow declares on the Royal Mail label for each
-            parcel format. The price is the same right across a format&rsquo;s weight band,
-            so we declare the <strong>top of the band</strong> — that way an under-declared
-            weight can never get a parcel rejected. Set each figure to the top of the band
-            you use. These feed the Click &amp; Drop labels and the Royal Mail CSV export.
-          </p>
-          {RM_WEIGHT_KEYS.map((key) => {
-            const s = settings.find((x) => x.settingkey === key)
-            const grams = parseInt(values[key] || '', 10)
-            const kg = Number.isFinite(grams) ? (grams / 1000).toFixed(3) : null
-            return (
-              <div className="pf-field" key={key} style={{ marginBottom: 16 }}>
-                <label className="pf-label">{LABELS[key] || key}</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <input
-                    className="pf-input pf-input-num"
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={values[key] || ''}
-                    onChange={(e) => handleChange(key, e.target.value)}
-                    disabled={s ? !s.iseditable : false}
-                    style={{ maxWidth: 200 }}
-                  />
-                  <span className="pf-card-note" style={{ margin: 0 }}>
-                    {kg !== null ? `= ${kg} kg` : 'grams'}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
         </div>
 
         <div className="pf-card">

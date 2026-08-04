@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { bandWeightGrams, getBandWeights } from '@/lib/royalmailWeight'
+import { declaredWeightGrams } from '@/lib/royalmailWeight'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -70,11 +70,11 @@ export async function POST(request: Request) {
     // Fetch shipping rates for package size and service code
     const { data: rates } = await supabase
       .from('tblshippingrates')
-      .select('methodname, servicecode, packagesize')
+      .select('methodname, servicecode, packagesize, maxweightg')
 
-    const rateMap = new Map<string, { servicecode: string | null, packagesize: string | null }>()
+    const rateMap = new Map<string, { servicecode: string | null, packagesize: string | null, maxweightg: number | null }>()
     for (const r of rates || []) {
-      rateMap.set(r.methodname, { servicecode: r.servicecode, packagesize: r.packagesize })
+      rateMap.set(r.methodname, { servicecode: r.servicecode, packagesize: r.packagesize, maxweightg: r.maxweightg })
     }
 
     // Build CSV rows
@@ -88,9 +88,6 @@ export async function POST(request: Request) {
 
     const exportedAt = new Date().toISOString()
     const orderIds: number[] = []
-
-    // Admin-configured Royal Mail band weights (falls back to shipped defaults).
-    const bandWeights = await getBandWeights(supabase)
 
     for (const order of orders) {
       const client = order.tblclients as any
@@ -122,9 +119,10 @@ export async function POST(request: Request) {
       const rate        = order.shippingmethod ? rateMap.get(order.shippingmethod) : null
       const serviceCode = rate?.servicecode || ''
       const packageSize = rate?.packagesize || ''
-      // Declare the top-of-band weight for capped formats so an under-declared
-      // weight can't get the parcel rejected (same price across the band).
-      const cappedGrams = bandWeightGrams(packageSize, bandWeights) ?? (order.totalweightg || 0)
+      // Declare the top of this rate's weight band so an under-declared weight
+      // can't get the parcel rejected (same price across the band). The band
+      // maximum is editable per rate in Admin → Shipping Rates.
+      const cappedGrams = declaredWeightGrams(rate?.maxweightg, order.totalweightg)
       const weightKg    = (cappedGrams / 1000).toFixed(3)
 
       rows.push([

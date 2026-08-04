@@ -48,7 +48,12 @@
       "PowerShell(python \"C:\\\\Users\\\\venus\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--GIT-pickflow\\\\4ad49fd3-6323-4be9-859a-9a616d5f5d5d\\\\scratchpad\\\\zero_bins_download.py\")",
       "PowerShell(\"--- first 5 lines ---\")",
       "PowerShell(python \"C:\\\\Users\\\\venus\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--GIT-pickflow\\\\4ad49fd3-6323-4be9-859a-9a616d5f5d5d\\\\scratchpad\\\\zero_bins_diff.py\")",
-      "PowerShell(python \"C:\\\\Users\\\\venus\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--GIT-pickflow\\\\4ad49fd3-6323-4be9-859a-9a616d5f5d5d\\\\scratchpad\\\\zero_bins_apply.py\")"
+      "PowerShell(python \"C:\\\\Users\\\\venus\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--GIT-pickflow\\\\4ad49fd3-6323-4be9-859a-9a616d5f5d5d\\\\scratchpad\\\\zero_bins_apply.py\")",
+      "PowerShell(git -C C:\\\\GIT\\\\pickflow status --short)",
+      "PowerShell(git -C C:\\\\GIT\\\\pickflow diff app/admin/settings/page.tsx)",
+      "PowerShell(git -C C:\\\\GIT\\\\pickflow diff HEAD --stat -- app/admin/settings/page.tsx lib/royalmailWeight.ts app/api/clickanddrop/route.ts app/api/clickanddrop-bulk/route.ts app/api/royalmail-export/route.ts)",
+      "PowerShell(git -C C:\\\\GIT\\\\pickflow log --oneline -5)",
+      "PowerShell(git -C C:\\\\GIT\\\\pickflow show HEAD:lib/royalmailWeight.ts)"
     ]
   }
 }
