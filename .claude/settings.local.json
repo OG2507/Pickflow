@@ -53,7 +53,9 @@
       "PowerShell(git -C C:\\\\GIT\\\\pickflow diff app/admin/settings/page.tsx)",
       "PowerShell(git -C C:\\\\GIT\\\\pickflow diff HEAD --stat -- app/admin/settings/page.tsx lib/royalmailWeight.ts app/api/clickanddrop/route.ts app/api/clickanddrop-bulk/route.ts app/api/royalmail-export/route.ts)",
       "PowerShell(git -C C:\\\\GIT\\\\pickflow log --oneline -5)",
-      "PowerShell(git -C C:\\\\GIT\\\\pickflow show HEAD:lib/royalmailWeight.ts)"
+      "PowerShell(git -C C:\\\\GIT\\\\pickflow show HEAD:lib/royalmailWeight.ts)",
+      "Bash(python recount_worksheet.py)",
+      "Bash(py recount_worksheet.py)"
     ]
   }
 }

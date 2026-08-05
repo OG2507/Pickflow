@@ -1220,11 +1220,16 @@ export default function OrderDetailPage() {
 
       const productBagsize = product?.bagsizedefault || 1
 
+      // IMPORTANT: do NOT filter on quantityonhand > 0 here. The picking bin is
+      // frequently empty (0) at pick time — that's exactly when a bag gets opened
+      // from overflow. If the empty bin is excluded, binLevel is undefined and the
+      // partial-bag remainder can't be returned to it, so surplus stock vanishes
+      // from the system and the bin never gets restocked on screen. Fetch every
+      // location for the product and filter overflow (qty > 0) locally instead.
       const { data: stockLevelsRaw, error: stockErr } = await supabase
         .from('tblstocklevels')
         .select('stocklevelid, quantityonhand, pickpriority, bagsize, locationid, tbllocations(locationtype, pickpriority)')
         .eq('productid', productid)
-        .gt('quantityonhand', 0)
 
       console.log(`[confirmPick] productid=${productid} — stockLevels count=${stockLevelsRaw?.length ?? 'null'} err=${stockErr?.message}`)
 
@@ -1232,20 +1237,24 @@ export default function OrderDetailPage() {
 
       const stockLevels = stockLevelsRaw.sort((a: any, b: any) => (a.tbllocations?.pickpriority || 9999) - (b.tbllocations?.pickpriority || 9999))
 
+      // The bin must be found even at qty 0. Overflow locations, however, are only
+      // worth processing when they actually hold stock.
       const binLevel = (stockLevels as any[]).find((s) => s.tbllocations?.locationtype === 'Picking Bin')
-      const overflowLevels = (stockLevels as any[]).filter((s) => s.tbllocations?.locationtype !== 'Picking Bin')
+      const overflowLevels = (stockLevels as any[]).filter((s) => s.tbllocations?.locationtype !== 'Picking Bin' && s.quantityonhand > 0)
 
       let remaining = quantityordered
 
       if (binLevel && remaining > 0) {
         const fromBin = Math.min(binLevel.quantityonhand, remaining)
-        await supabase.from('tblstocklevels').update({ quantityonhand: binLevel.quantityonhand - fromBin }).eq('stocklevelid', binLevel.stocklevelid)
-        await supabase.from('tblstockmovements').insert({
-          movementdate: new Date().toISOString(), movementtype: 'PICK',
-          productid, fromlocationid: binLevel.locationid,
-          quantity: fromBin, reference: ordernumber, reason: 'Order pick', createdby: 'system',
-        })
-        remaining -= fromBin
+        if (fromBin > 0) {
+          await supabase.from('tblstocklevels').update({ quantityonhand: binLevel.quantityonhand - fromBin }).eq('stocklevelid', binLevel.stocklevelid)
+          await supabase.from('tblstockmovements').insert({
+            movementdate: new Date().toISOString(), movementtype: 'PICK',
+            productid, fromlocationid: binLevel.locationid,
+            quantity: fromBin, reference: ordernumber, reason: 'Order pick', createdby: 'system',
+          })
+          remaining -= fromBin
+        }
       }
 
       for (const ovf of overflowLevels) {
